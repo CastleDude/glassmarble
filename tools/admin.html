@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>珠珠快跑 - 反馈管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,sans-serif;background:#f5f0e8;color:#333;padding:16px;max-width:600px;margin:0 auto}
+h1{text-align:center;color:#ED971C;margin:16px 0 4px;font-size:20px}
+.status{text-align:center;color:#999;font-size:11px;margin-bottom:16px}
+.card{background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 2px 6px rgba(0,0,0,0.06)}
+.meta{font-size:11px;color:#999;margin-bottom:4px}
+.text{font-size:14px;line-height:1.6;white-space:pre-wrap}
+.contact{font-size:12px;color:#ED971C;margin-top:6px}
+.imgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.imgs img{width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid #eee;cursor:pointer}
+.imgs img:hover{transform:scale(2.5);z-index:10;position:relative;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
+.empty{text-align:center;color:#bbb;padding:60px;font-size:14px}
+.btn{display:block;margin:16px auto;padding:10px 40px;background:#ED971C;color:#fff;border:none;border-radius:20px;font-size:15px;cursor:pointer}
+.btn:hover{opacity:0.9}
+.preview{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:100}
+.preview img{max-width:90vw;max-height:90vh;border-radius:8px}
+.preview .close{position:absolute;top:16px;right:20px;color:#fff;font-size:30px;cursor:pointer}
+</style></head><body>
+<h1>📬 珠珠快跑 · 玩家反馈</h1>
+<div class="status" id="status">加载中...</div>
+<div id="list"></div>
+<button class="btn" onclick="load()">🔄 刷新</button>
+<div id="preview" class="preview" style="display:none" onclick="this.style.display='none'">
+  <span class="close">✕</span>
+  <img id="previewImg" src="">
+</div>
+
+<script src="https://web-9gikcbug35bad3a8-1304825656.tcloudbaseapp.com/sdk/1.6.0/cloud.js"></script>
+<script>
+// 注意：此页面为独立管理工具，不在小游戏包内。
+// 环境 ID 硬编码是必要的——管理页需要直连云开发读取反馈数据。
+const app = cloud.init({ env: 'glassmarble-d2gvr9flw08836ddd' });
+var db = app.database();
+var _ = db.command;
+
+async function load() {
+  document.getElementById('status').textContent = '加载中...';
+  try {
+    // 匿名登录
+    var auth = app.auth({ persistence: 'local' });
+    await auth.anonymousAuthProvider().signIn();
+
+    var res = await db.collection('feedback').orderBy('createTime','desc').limit(50).get();
+    var list = res.data || [];
+    if (list.length === 0) {
+      document.getElementById('list').innerHTML = '<div class="empty">📭<br>暂无反馈</div>';
+    } else {
+      var html = '';
+      list.forEach(function(fb) {
+        var t = fb.createTime ? new Date(fb.createTime).toLocaleString('zh-CN') : '';
+        var imgs = '';
+        if (fb.images && fb.images.length > 0) {
+          imgs = '<div class="imgs">';
+          fb.images.forEach(function(fid) {
+            imgs += '<img src="' + escapeHtml(fid) + '" onerror="this.style.display=\'none\'" onclick="event.stopPropagation();preview(this.src)" title="云存储fileID，点击预览">';
+          });
+          imgs += '</div>';
+        }
+        html += '<div class="card">' +
+          '<div class="meta">' + escapeHtml(t) + (fb.contact ? ' · 📞' + escapeHtml(fb.contact) : '') + '</div>' +
+          '<div class="text">' + escapeHtml(fb.text || '') + '</div>' +
+          imgs +
+          '</div>';
+      });
+      document.getElementById('list').innerHTML = html;
+    }
+    document.getElementById('status').textContent = '共 ' + list.length + ' 条 · ' + new Date().toLocaleTimeString('zh-CN');
+  } catch(e) {
+    document.getElementById('status').textContent = '加载失败: ' + e.message;
+  }
+}
+
+function escapeHtml(s) { var d=document.createElement('div');d.textContent=s;return d.innerHTML; }
+function preview(url) {
+  // cloud fileID 无法直接预览，显示fileID
+  if (url.startsWith('cloud://')) { alert('云存储FileID:\n' + url + '\n\n请在云开发控制台→存储中搜索此ID查看'); return; }
+  document.getElementById('previewImg').src = url;
+  document.getElementById('preview').style.display = 'flex';
+}
+load();
+</script>
+</body></html>

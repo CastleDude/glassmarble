@@ -1,0 +1,14 @@
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# WeChat DevTools
+*.log
+.wechatide.rc
+
+# OS
+Thumbs.db
+.DS_Store

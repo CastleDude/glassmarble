@@ -1,0 +1,9 @@
+{
+  "name": "rank",
+  "version": "1.0.0",
+  "description": "珠珠快跑 - 世界排行榜云函数",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

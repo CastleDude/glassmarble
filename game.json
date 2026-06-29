@@ -1,0 +1,18 @@
+{
+  "deviceOrientation": "portrait",
+  "showStatusBar": false,
+  "cloud": true,
+  "openDataContext": "openDataContext",
+  "subpackages": [
+    {
+      "name": "assets",
+      "root": "subpkg_assets/"
+    }
+  ],
+  "networkTimeout": {
+    "request": 5000,
+    "connectSocket": 5000,
+    "uploadFile": 5000,
+    "downloadFile": 10000
+  }
+}
