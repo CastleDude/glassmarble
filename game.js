@@ -336,6 +336,9 @@ function resetClassicData() {
     _pitRollbackFromScale: 1,
     _pitRollbackToX: 0, _pitRollbackToY: 0,
     _pitRollbackTimer: 0,
+    _popAnim: false,        // 出坑弹跳动画
+    _popTimer: 0,
+    _popPlayer: -1,
     _countdown: 0,          // 倒计时秒数（0=不显示）
     _countdownTimer: 0,     // 倒计时计时器
     _countdownNext: null,   // 倒计时结束后执行的动作
@@ -4850,12 +4853,14 @@ function startClassicGame(mode) {
     classicData.currentPlayer = classicData.serveOrder[0];
 
     // 随机分配皮肤（从12种中随机，两人不同）
-    const allSkins = MARBLE_SKINS.map(function(s) { return s.id; });
-    const idx1 = Math.floor(Math.random() * allSkins.length);
-    let idx2 = Math.floor(Math.random() * allSkins.length);
-    while (idx2 === idx1) idx2 = Math.floor(Math.random() * allSkins.length);
-    classicData.players[0].skin = allSkins[idx1];
-    classicData.players[1].skin = allSkins[idx2];
+    var allSkins = MARBLE_SKINS.map(function(s) { return s.id; });
+    // Fisher-Yates 洗牌取前2个，保证不重复
+    for (var si = allSkins.length - 1; si > 0; si--) {
+      var rj = Math.floor(Math.random() * (si + 1));
+      var tmp = allSkins[si]; allSkins[si] = allSkins[rj]; allSkins[rj] = tmp;
+    }
+    classicData.players[0].skin = allSkins[0];
+    classicData.players[1].skin = allSkins[1];
   }
 
   // 生成3个坑（垂直居中排列，间隔1米）
@@ -5320,6 +5325,25 @@ function classicUpdate(dt) {
 
   if (isGameOver) return;
 
+  // 出坑弹跳动画：0.80→1.1→1.0，0.3s
+  if (cd._popAnim) {
+    cd._popTimer += dt;
+    var popDur = 0.8;
+    var pt2 = Math.min(cd._popTimer / popDur, 1);
+    var pp = cd.players[cd._popPlayer];
+    if (pt2 < 0.5) {
+      pp.ballScale = 0.80 + pt2 / 0.5 * 0.30;
+    } else {
+      pp.ballScale = 1.1 - (pt2 - 0.5) / 0.5 * 0.1;
+    }
+    if (pt2 >= 1) {
+      pp.ballScale = 1.0;
+      cd._popAnim = false;
+      cd.phase = CLASSIC_PHASE.AIMING;
+    }
+    return;
+  }
+
   switch (cd.phase) {
     case CLASSIC_PHASE.INTRO:
       classicUpdateIntro(dt);
@@ -5370,7 +5394,7 @@ function classicUpdateIntro(dt) {
     }
     // 1秒后→开始3秒倒计时，玩家先发则倒计时结束后切发球视角
     if (cd.introAnimTimer > 1.8) {
-      cd._countdown = 3;
+      cd._countdown = 2;
       cd._countdownTimer = 1.0;
       cd._countdownHint = classicPlayerName(firstPlayer) + '弹球';
     }
@@ -5435,9 +5459,9 @@ function classicUpdateRolling(dt) {
     suckP.ballVX = 0; suckP.ballVY = 0;
     // 缩放渐变到 0.80
     suckP.ballScale += (0.80 - suckP.ballScale) * 0.25;
-    // 纹理跟随
-    suckP.ballTexOffX += (suckDX / suckDist) * suckSpeed * 150;
-    suckP.ballTexOffY += (suckDY / suckDist) * suckSpeed * 150;
+    // 纹理跟随（与滚动方向一致）
+    suckP.ballTexOffX -= (suckDX / suckDist) * suckSpeed * 220;
+    suckP.ballTexOffY += (suckDY / suckDist) * suckSpeed * 220;
     return;
   }
 
@@ -5454,8 +5478,8 @@ function classicUpdateRolling(dt) {
     rp.ballScale += (0.80 - rp.ballScale) * 0.25;
     var rddx = (cd._pitRollbackToX - cd._pitRollbackFromX);
     var rddy = (cd._pitRollbackToY - cd._pitRollbackFromY);
-    rp.ballTexOffX += rddx * 150 * dt / rbDur;
-    rp.ballTexOffY += rddy * 150 * dt / rbDur;
+    rp.ballTexOffX -= rddx * 220 * dt / rbDur;
+    rp.ballTexOffY += rddy * 220 * dt / rbDur;
     if (rt >= 1) {
       rp.ballX = cd._pitRollbackToX;
       rp.ballY = cd._pitRollbackToY;
@@ -5545,7 +5569,7 @@ function classicOnBallStop() {
       cd.players[cd.currentPlayer].locked = true;
       cd.hintText = '准备切换弹球…';
       var nextPlayer = cd.serveOrder[1];
-      cd._countdown = 3;
+      cd._countdown = 2;
       cd._countdownTimer = 1.0;
       cd._countdownHint = classicPlayerName(nextPlayer) + '弹球';
       cd._countdownNext = function() {
@@ -5597,7 +5621,7 @@ function classicOnBallStop() {
       classicShowAll('距离相同！重新弹球...', true);
       classicFocusServe();
       var firstEq = cd.currentPlayer;
-      cd._countdown = 3;
+      cd._countdown = 2;
       cd._countdownTimer = 1.0;
       cd._countdownHint = classicPlayerName(firstEq) + '弹球';
       cd._countdownNext = function() {
@@ -5634,7 +5658,7 @@ function classicOnBallStop() {
       classicShowAll((closer === 0 ? '你' : classicPlayerName(closer)) + '离坑更近，先弹球', true);
       classicFocusServe();
       var closerRef = closer;
-      cd._countdown = 3;
+      cd._countdown = 2;
       cd._countdownTimer = 1.0;
       cd._countdownHint = classicPlayerName(closerRef) + '弹球';
       cd._countdownNext = function() {
@@ -5774,16 +5798,20 @@ function classicSelectTarget(option) {
   }
 
   if (fromPit) {
-    // 球跳到坑边，朝向目标
+    // 球跳到坑边，朝向目标 + 缩放动画 0.80→1.1→1.0
     const angle = Math.atan2(option.worldX - fromPit.worldX, option.worldY - fromPit.worldY);
     p.ballX = fromPit.worldX + Math.sin(angle) * fromPit.radius * 1.1;
     p.ballY = fromPit.worldY + Math.cos(angle) * fromPit.radius * 1.1;
+    cd._popAnim = true;
+    cd._popTimer = 0;
+    cd._popPlayer = cd.currentPlayer;
   }
 
   cd.ballInPit = null;
   cd._hitOpponent = false;
   cd.aimingAngle = (Math.random() - 0.5) * 2 * Math.PI;
-  cd.phase = CLASSIC_PHASE.AIMING;
+  // 缩放动画完成后进入 AIMING
+  if (!cd._popAnim) cd.phase = CLASSIC_PHASE.AIMING;
   // 相机：球与目标范围占屏幕中心60%，补偿67%投影偏移
   var minY = Math.min(p.ballY, option.worldY) - 0.2;
   var maxY = Math.max(p.ballY, option.worldY) + 0.2;
@@ -5925,7 +5953,7 @@ function classicNextPlayer(reason) {
   var curP = cd.currentPlayer;
 
   // 倒计时后开始（常规回合切换，不使用发球视角）
-  cd._countdown = 3;
+  cd._countdown = 2;
   cd._countdownTimer = 1.0;
   cd._countdownHint = classicPlayerName(curP) + '弹球';
   cd._countdownNext = function() {
@@ -6259,14 +6287,6 @@ function classicRender() {
     ctx.textAlign = 'center';
     ctx.fillText('' + pit.index, sp.x, sp.y + 6);
 
-    // 半透明红色实际坑大小
-    ctx.beginPath();
-    ctx.arc(sp.x, sp.y, pitR, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,0,0,0.2)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,0,0,0.4)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
   }
 
   // 3. 出发线（水平无限延伸，铺满屏幕）
@@ -6804,8 +6824,8 @@ function classicDrawUI() {
 
   // 竖向方向滑块（宽度=视角按钮直径38，高度加1/3=187）
   const sliderW = 38, sliderH = 187;
-  const sliderX = rightCX - sliderW / 2;
-  const sliderY = btnCY - btnR - 10 - sliderH;
+  const sliderX = rightCX + btnR - 22;
+  const sliderY = btnCY - btnR - sliderH;
   const sliderCX = sliderX + sliderW / 2;
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   roundRectPath(sliderX, sliderY, sliderW, sliderH, sliderW / 2);
@@ -6850,10 +6870,10 @@ function classicDrawUI() {
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('方向', rightCX, dirLabelY);
+    ctx.fillText('方向', sliderCX, dirLabelY);
 
     // === 视角切换按钮（me.png / compus.png） ===
-    var viewBtnX = rightCX + btnR + 3, viewBtnY = btnCY - btnR - 15, viewBtnR = 19;
+    var viewBtnX = rightCX - btnR + 27, viewBtnY = btnCY - btnR - 33, viewBtnR = 19;
     var viewImg = cd._viewToggle ? uiIcons.compus : uiIcons.me;
     if (viewImg && viewImg.width) {
       ctx.drawImage(viewImg, viewBtnX - viewBtnR, viewBtnY - viewBtnR, viewBtnR * 2, viewBtnR * 2);
@@ -7316,7 +7336,7 @@ function classicTouchStart(pts, tx, ty) {
   }
 
   // 视角切换按钮（蓄力按钮右上方）：聚焦自己 ←→ 全景
-  var viewBtnX2 = W - 27, viewBtnY2 = H - 145, viewBtnR2 = 19;
+  var viewBtnX2 = W - 83, viewBtnY2 = H - 163, viewBtnR2 = 19;
   if (Math.sqrt((tx - viewBtnX2) ** 2 + (ty - viewBtnY2) ** 2) < viewBtnR2 + 8) {
     cd._viewToggle = !cd._viewToggle;
     cd._viewManual = true; // 手动切换，自动逻辑不再干预
@@ -7365,7 +7385,7 @@ function classicTouchStart(pts, tx, ty) {
     }
 
     // 方向滑块（右侧，蓄力按钮上方）
-    const sliderX3 = W - 89, sliderW3 = 38, sliderY3 = H - 327, sliderH3 = 187;
+    const sliderX3 = W - 52, sliderW3 = 38, sliderY3 = H - 317, sliderH3 = 187;
     if (tx > sliderX3 - 15 && tx < sliderX3 + sliderW3 + 15 && ty > sliderY3 - 10 && ty < sliderY3 + sliderH3 + 10) {
       cd._draggingJoy = true;
       var normPos3 = (ty - sliderY3) / sliderH3;
