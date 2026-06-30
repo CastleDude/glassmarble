@@ -117,6 +117,8 @@ const CLASSIC_PIT_COUNT = 3;
 const CLASSIC_PIT_SPACING = 1.0;    // 坑间距1米
 const CLASSIC_START_DIST = 1.0;     // 出发线距坑1下方1米→满蓄力刚好到
 const CLASSIC_SAME_DIST_THRESH = 0.03; // 等距判定阈值
+const CLASSIC_MARBLE_R = 0.056;     // 经典模式弹珠半径
+const CLASSIC_PIT_VISUAL_R = 0.1;   // 经典模式坑背景视觉半径
 
 let classicData = null;
 let classicShowModeSelect = false; // 首页弹出模式选择
@@ -327,6 +329,13 @@ function resetClassicData() {
     _pitSuckPit: null,
     _pitSuckPlayer: -1,
     _pitSuckTimer: 0,
+    _pitSuckFromScale: 1,
+    _pitRollback: false,    // 回滚到坑心
+    _pitRollbackPlayer: -1,
+    _pitRollbackFromX: 0, _pitRollbackFromY: 0,
+    _pitRollbackFromScale: 1,
+    _pitRollbackToX: 0, _pitRollbackToY: 0,
+    _pitRollbackTimer: 0,
     _countdown: 0,          // 倒计时秒数（0=不显示）
     _countdownTimer: 0,     // 倒计时计时器
     _countdownNext: null,   // 倒计时结束后执行的动作
@@ -365,91 +374,91 @@ const LEVEL_STORIES = [
   {
     title: '外婆的后院',
     pages: [
-      '记忆里的夏天总是很长。\n外婆坐在堂屋门槛上摇着蒲扇，\n一下，一下，\n像时钟在数着午后的光。',
-      '我蹲在她身后的泥地上，\n用手指挖出了人生中第一个坑。\n泥土是温热的，\n带着太阳晒过的味道。',
-      '那颗天蓝色的玻璃珠，\n是外婆从镇上赶集时给我买的。\n五毛钱，她说，\n可以换你一个下午的快乐。',
-      '我把珠珠放在坑边，\n轻轻一推——\n它滚进去了，\n发出"嗒"的一声脆响。\n那一刻，\n连树上的知了都安静了。',
-      '外婆回头看了我一眼，\n笑了笑，什么也没说。\n很多年以后我才明白，\n她摇扇子的节奏，\n就是童年远去的倒计时。',
+      '记忆里的夏天总是很长\n外婆坐在堂屋门槛上摇着蒲扇\n一下 一下\n像时钟在数着午后的光',
+      '我蹲在她身后的泥地上\n用手指挖出了人生中第一个坑\n泥土是温热的\n带着太阳晒过的味道',
+      '那颗天蓝色的玻璃珠\n是外婆从镇上赶集时给我买的\n五毛钱 她说：\n可以换你一个下午的快乐',
+      '我把珠珠放在坑边\n轻轻一推 ——\n它滚进去了\n发出"嗒"的一声脆响\n那一刻\n连树上的知了都安静了',
+      '外婆回头看了我一眼\n笑了笑 什么也没说\n很多年以后我才明白\n她摇扇子的节奏\n就是童年远去的倒计时',
       '外婆，我想你了！',
     ]
   },
   {
     title: '学校的沙坑',
     pages: [
-      '放学铃是世界上最动听的声音。\n老师还没说完"下课"，\n我们的心已经飞到了\n操场角落的沙坑里。',
-      '那里是只属于孩子的领土。\n沙子里偶尔能挖出\n不知谁丢的半截橡皮、\n一颗生了锈的图钉。\n每一件都是考古发现。',
-      '小明有一颗天蓝色的弹珠，\n他说那是他爷爷小时候玩的。\n我们都不信，\n但他护得比命还紧。',
-      '多年后的同学会上，\n小明已经不叫小明了。\n他西装革履，\n聊着房价和股票。\n我问他那颗弹珠还在吗，\n他愣了一下，\n眼眶突然就红了。',
-      '有些东西丢了就找不回来了。\n不是弹珠，\n是那个一放学就奔向沙坑的自己。',
+      '放学铃是世界上最动听的声音\n老师还没说完 下课\n我们的心已经飞到了\n操场角落的沙坑里',
+      '那里是只属于孩子的领土\n沙子里偶尔能挖出\n不知谁丢的半截橡皮\n一颗生了锈的图钉\n每一件都是考古发现',
+      '小明有一颗天蓝色的弹珠\n他说那是他爷爷小时候玩的\n我们都不信\n但他护得比命还紧',
+      '多年后的同学会上\n小明已经不叫小明了\n他西装革履\n聊着房价和股票\n我问他那颗弹珠还在吗\n他愣了一下\n眼眶突然就红了',
+      '有些东西丢了就找不回来了\n不是弹珠\n是那个一放学就奔向沙坑的自己',
     ]
   },
   {
     title: '雨后的泥地',
     pages: [
-      '城里的雨后只有堵车和外卖迟到。\n但在小时候的村子里，\n一场暴雨过后，\n整个世界都是新的。',
-      '空气被洗得干干净净，\n混着泥土和青草的味道。\n那是世界上最好闻的香水，\n不花钱，但后来再也没闻到过。',
-      '我们赤着脚踩在泥里，\n凉凉的、软软的，\n脚趾间挤出一坨坨泥巴。\n大人在屋里喊别感冒了，\n我们假装听不见。',
-      '泥地里的坑最好挖，\n但珠珠也最容易脏。\n每进一个坑，\n就要在旁边的水洼里洗一洗。\n洗着洗着，\n就开始打水仗了。',
-      '那时候快乐很简单——\n一场雨，\n一块泥地，\n一颗珠子，\n就能撑起一整个下午。\n后来我们有了很多东西，\n但好像再也没有\n一个那样的下午了。',
+      '城里的雨后只有堵车和外卖迟到\n但在小时候的村子里\n一场暴雨过后\n整个世界都是新的',
+      '空气被洗得干干净净\n混着泥土和青草的味道\n那是世界上最好闻的香水\n不花钱 但后来再也没闻到过',
+      '我们赤着脚踩在泥里\n凉凉的、软软的\n脚趾间挤出一坨坨泥巴\n大人在屋里喊别感冒了\n我们假装听不见',
+      '泥地里的坑最好挖\n但珠珠也最容易脏\n每进一个坑\n就要在旁边的水洼里洗一洗\n洗着洗着\n就开始打水仗了',
+      '那时候快乐很简单 ——\n一场雨\n一块泥地\n一颗珠子\n就能撑起一整个下午\n后来我们有了很多东西\n但好像再也没有\n一个那样的下午了',
     ]
   },
   {
     title: '河边的卵石滩',
     pages: [
-      '小河的南岸有一片卵石滩，\n每一块石头都被流水打磨了不知多少年。\n光脚踩上去，\n石头硌得脚底又疼又痒，\n但我们从来不在乎。',
-      '在这儿挖坑要先搬石头，\n像在开荒。\n我们用卵石围成圆圈，\n比任何人工的球场都好看。\n河水就在旁边哗哗地流，\n像永远不会停的时间。',
-      '有一次我的珠珠滚进了河里，\n我沿着河岸追了好远好远，\n最后还是没追上。\n我坐在石滩上哭，\n觉得天都塌了。',
-      '现在想想，\n那条河其实很浅，\n浅到大人能一步跨过去。\n但在那个年纪，\n失去一颗弹珠，\n就是人生最大的悲剧。',
-      '我们也曾像河里的石头，\n被时间冲刷，\n被磨去棱角。\n但那些圆润光滑的记忆，\n反而成了最珍贵的。',
+      '小河的南岸有一片卵石滩\n每一块石头都被流水打磨了不知多少年\n光脚踩上去\n石头硌得脚底又疼又痒\n但我们从来不在乎',
+      '在这儿挖坑要先搬石头\n像在开荒\n我们用卵石围成圆圈\n比任何人工的球场都好看\n河水就在旁边哗哗地流\n像永远不会停的时间',
+      '有一次我的珠珠滚进了河里\n我沿着河岸追了好远好远\n最后还是没追上\n我坐在石滩上哭\n觉得天都塌了',
+      '现在想想\n那条河其实很浅\n浅到大人能一步跨过去\n但在那个年纪\n失去一颗弹珠\n就是人生最大的悲剧',
+      '我们也曾像河里的石头\n被时间冲刷\n被磨去棱角\n但那些圆润光滑的记忆\n反而成了最珍贵的',
     ]
   },
   {
     title: '老槐树下',
     pages: [
-      '村口的槐树不知道多少岁了。\n爷爷说他小时候就在，\n爷爷的爷爷小时候也在。\n树皮皴裂得像老人的手背，\n但每年春天还是会开出新的花。',
-      '树荫大得能装下十几个小孩。\n我们在树根之间挖坑，\n树根隆起来的地方\n就是天然的障碍。\n有时候蚂蚁排着队路过，\n我们就停下来看，\n一等就是半天。',
-      '有一回我在树下捡到一颗珠子，\n不是玻璃的，是石头磨的。\n爷爷说那是他小时候玩的，\n那时候买不起玻璃珠，\n就在河滩上找圆的石头。\n他说这话的时候，\n眼睛里有一种我从没见过的光。',
-      '后来我才明白，\n那道光叫"回不去的时光"。\n槐树还在，\n但树下玩弹珠的孩子\n换了一拨又一拨。\n树是永恒的，\n童年是借来的。',
+      '村口的槐树不知道多少岁了\n爷爷说他小时候就在\n爷爷的爷爷小时候也在\n树皮皴裂得像老人的手背\n但每年春天还是会开出新的花',
+      '树荫大得能装下十几个小孩\n我们在树根之间挖坑\n树根隆起来的地方\n就是天然的障碍\n有时候蚂蚁排着队路过\n我们就停下来看\n一等就是半天',
+      '有一回我在树下捡到一颗珠子\n不是玻璃的是石头磨的\n爷爷说那是他小时候玩的\n那时候买不起玻璃珠\n就在河滩上找圆的石头\n他说这话的时候\n眼睛里有一种我从没见过的光',
+      '后来我才明白\n那道光叫"回不去的时光"\n槐树还在\n但树下玩弹珠的孩子\n换了一拨又一拨\n树是永恒的\n童年是借来的',
     ]
   },
   {
     title: '夏日傍晚的晒谷场',
     pages: [
-      '生产队的晒谷场，\n白天是属于稻谷的。\n只有到了傍晚，\n稻谷收进麻袋，\n水泥地才空出来，\n变成我们的王国。',
-      '地面被太阳晒了一整天，\n踩上去还带着微微的热气。\n那种热从脚底板传上来，\n一直暖到心里。\n后来我在城里住过地暖的房子，\n但再也找不到那种\n从下往上、从外到内的温度了。',
-      '夕阳把一切都染成了金色。\n金色的水泥地，\n金色的玻璃珠，\n金色的笑脸。\n我们在地上滚弹珠，\n影子被拉得老长老长。',
-      '不知道从哪一天起，\n晒谷场变成了停车场。\n水泥地还在，\n但没有稻谷的香味了，\n也没有小孩趴在地上玩弹珠了。\n时代就是这样，\n悄无声息地把我们的乐园\n一个接一个地收走。',
+      '生产队的晒谷场\n白天是属于稻谷的\n只有到了傍晚\n稻谷收进麻袋\n水泥地才空出来\n变成我们的王国',
+      '地面被太阳晒了一整天\n踩上去还带着微微的热气\n那种热从脚底板传上来\n一直暖到心里\n后来我在城里住过地暖的房子\n但再也找不到那种\n从下往上、从外到内的温度了',
+      '夕阳把一切都染成了金色\n金色的水泥地\n金色的玻璃珠\n金色的笑脸\n我们在地上滚弹珠\n影子被拉得老长老长',
+      '不知道从哪一天起\n晒谷场变成了停车场\n水泥地还在\n但没有稻谷的香味了\n也没有小孩趴在地上玩弹珠了\n时代就是这样\n悄无声息地把我们的乐园\n一个接一个地收走',
     ]
   },
   {
     title: '初雪的院子',
     pages: [
-      '那年的第一场雪来得很突然。\n早上推开门，\n整个世界都白了。\n院子里那棵枣树的枝丫上\n堆着一层蓬松的白。',
-      '雪地里的弹珠最好看。\n蓝色玻璃珠在白雪上滚过，\n留下一道细细的痕迹，\n像在纸上画了一条\n歪歪扭扭的线。',
-      '但是雪地挖坑太难了，\n手指冻得通红。\n外婆从屋里出来，\n给我戴上她的毛线手套。\n手套太大了，\n指尖空出一截，\n但暖和得让人想哭。',
-      '外婆说：别急，慢慢挖。\n这句话我记了很多年。\n后来我在很多事情上着急，\n考试、工作、买房、结婚，\n但每当我想起外婆戴着老花镜\n给我织手套的样子，\n就会想起那句话：\n别急，慢慢来。',
-      '外婆走了很多年了。\n但每年冬天下第一场雪的时候，\n我都会想起她。\n雪会融化，\n但那份温暖不会。',
+      '那年的第一场雪来得很突然\n早上推开门\n整个世界都白了\n院子里那棵枣树的枝丫上\n堆着一层蓬松的白',
+      '雪地里的弹珠最好看\n蓝色玻璃珠在白雪上滚过\n留下一道细细的痕迹\n像在纸上画了一条\n歪歪扭扭的线',
+      '但是雪地挖坑太难了\n手指冻得通红\n外婆从屋里出来\n给我戴上她的毛线手套\n手套太大了\n指尖空出一截\n但暖和得让人想哭',
+      '外婆说：别急 慢慢挖\n这句话我记了很多年\n后来我在很多事情上着急\n考试、工作、买房、结婚\n但每当我想起外婆戴着老花镜\n给我织手套的样子\n就会想起那句话：\n别急 慢慢来',
+      '外婆走了很多年了\n但每年冬天下第一场雪的时候\n我都会想起她\n雪会融化\n但那份温暖不会',
     ]
   },
   {
     title: '回忆的小巷',
     pages: [
-      '老街要拆了。\n推土机停在巷口，\n像一只等着吞噬记忆的怪兽。\n我赶在拆迁前回去了一趟。',
-      '青石板路还在，\n被几十年的脚步磨得发亮。\n两边的墙上还留着\n我们当年用粉笔画的小人和箭头。\n墙角下，\n那个我们挖过无数弹珠坑的地方，\n长了一层薄薄的青苔。',
-      '巷子深处，\n王爷爷还坐在门口剥毛豆。\n他已经老得认不出我了。\n但他看到我手里拿着的弹珠时，\n突然说：\n"我这里也有一颗，\n在抽屉里放了六十年。"',
-      '他颤颤巍巍地进屋，\n拿出一个铁盒子。\n里面有一颗灰扑扑的弹珠，\n和一张泛黄的奖状。\n"这是我小时候打弹珠比赛赢的，\n一直舍不得扔。"',
-      '我握着那颗六十年前的弹珠，\n突然觉得它好重。\n那不是一颗珠子，\n是一个人全部的童年。\n老街会拆，\n但有些东西，\n永远不该被推平。',
+      '老街要拆了\n推土机停在巷口\n像一只等着吞噬记忆的怪兽\n我赶在拆迁前回去了一趟',
+      '青石板路还在\n被几十年的脚步磨得发亮\n两边的墙上还留着\n我们当年用粉笔画的小人和箭头\n墙角下\n那个我们挖过无数弹珠坑的地方\n长了一层薄薄的青苔',
+      '巷子深处\n王爷爷还坐在门口剥毛豆\n他已经老得认不出我了\n但他看到我手里拿着的弹珠时\n突然说：\n我这里也有一颗\n在抽屉里放了六十年',
+      '他颤颤巍巍地进屋\n拿出一个铁盒子\n里面有一颗灰扑扑的弹珠\n和一张泛黄的奖状\n这是我小时候打弹珠比赛赢的\n一直舍不得扔',
+      '我握着那颗六十年前的弹珠\n突然觉得它好重\n那不是一颗珠子\n是一个人全部的童年\n老街会拆\n但有些东西\n永远不该被推平',
     ]
   },
   {
     title: '永远的童年',
     pages: [
-      '我今年三十岁了。\n在城市的写字楼里上班，\n每天挤地铁，\n喝咖啡，\n开没完没了的会。',
-      '有一天清理旧物，\n从箱底翻出一个铁盒子。\n打开一看——\n几颗弹珠，\n静静地躺在里面。\n蓝色的、绿色的、透明的，\n像被封存的宝石。',
-      '我拿起一颗对着光看，\n里面有细微的气泡。\n小时候从没发现过，\n原来玻璃珠的心里\n也藏着不完美。',
-      '我忽然意识到，\n我已经很多年没有\n蹲在地上认真地做一件事了。\n不是工作，\n不是赚钱，\n就是单纯地、\n不带任何目的地，\n做一件让自己快乐的事。',
-      '于是我带着三岁的儿子，\n回到外婆的老房子。\n院子已经荒了，\n但土地还在。\n我在当年的位置\n又挖了一个坑。\n儿子开心地把弹珠滚了进去。',
-      '"嗒"的一声。\n和三十年前一模一样。\n世界是一个圆，\n我们从起点出发，\n兜兜转转，\n又回到了原点。\n童年从来没有离开过，\n它只是在等我们\n有时间回头。',
+      '我今年三十岁了\n在城市的写字楼里上班\n每天挤地铁\n喝咖啡\n开没完没了的会',
+      '有一天清理旧物\n从箱底翻出一个铁盒子\n打开一看 ——\n几颗弹珠\n静静地躺在里面\n蓝色的、绿色的、透明的\n像被封存的宝石',
+      '我拿起一颗对着光看\n里面有细微的气泡\n小时候从没发现过\n原来玻璃珠的心里\n也藏着不完美',
+      '我忽然意识到\n我已经很多年没有\n蹲在地上认真地做一件事了\n不是工作\n不是赚钱\n就是单纯地\n不带任何目的地\n做一件让自己快乐的事',
+      '于是我带着三岁的儿子\n回到外婆的老房子\n院子已经荒了\n但土地还在\n我在当年的位置\n又挖了一个坑\n儿子开心地把弹珠滚了进去',
+      '"嗒"的一声\n和三十年前一模一样\n世界是一个圆\n我们从起点出发\n兜兜转转\n又回到了原点\n童年从来没有离开过\n它只是在等我们\n有时间回头',
     ]
   },
 ];
@@ -797,6 +806,8 @@ function startSinkAnimation(pit) {
 }
 
 function updateSinking(dt) {
+  // 弹窗/光点期间全体冻结
+  if (treasurePopup || treasureWaitingParticles) return;
   // 跳过道具动画
   if (marble._jumpPropAnim) { updateJumpPropAnim(dt); return; }
   // 跳过道具的跳出阶段：使用已保存的坑位置
@@ -833,7 +844,7 @@ function updateSinking(dt) {
         // 首次触发：执行宝物掉落
         finishSink();
       }
-      return;
+      if (treasurePopup || treasureWaitingParticles) return;
     }
   }
 
@@ -955,6 +966,9 @@ function finishSink() {
   if (treasurePopup || treasureWaitingParticles) return;
 
   // 短暂重生状态
+  if (marble._jumpFromX === undefined) { marble._jumpFromX = marble.worldX; marble._jumpFromY = marble.worldY; }
+  if (marble._landX === undefined) { marble._landX = marble.worldX; marble._landY = marble.worldY; }
+  playSfx('luo');
   gameState = STATE.RESPAWN;
   animTimer = 0;
   saveAllData();
@@ -1123,7 +1137,7 @@ function goHome() {
 
 function restartGame() {
   // 重新开始游戏
-  levelTreasureSeq = 0; levelTreasureId = ''; levelChestsPlaced = 0; levelTreasureChestNum = 0;
+  levelTreasureSeq = 0; levelTreasureId = ''; levelChestsPlaced = 0; levelTreasureChestNum = 0; levelChestSeq = [];
   endlessPool3 = []; endlessChestsPlaced = 0; endlessTypesRevealed = {};
   sessionProps = { heart: 1, jump: 1, force: 1 };
   // 签到攒的道具叠加到本局
@@ -1757,12 +1771,12 @@ function releaseCharge() {
 
   // 方向：珠珠底部顶点 → 目标坑中心
   const targetPit = getCurrentTargetPit();
-  const bottomX = marble.worldX;
-  const bottomY = marble.worldY + CFG.MARBLE_RADIUS;
+  const aimX = marble.worldX;
+  const aimY = marble.worldY;
   let dx = 0, dy = 1;
   if (targetPit) {
-    dx = targetPit.worldX - bottomX;
-    dy = targetPit.worldY - bottomY;
+    dx = targetPit.worldX - aimX;
+    dy = targetPit.worldY - aimY;
     camera.targetY = targetPit.worldY - CFG.CAMERA_OFFSET;
   } else {
     camera.targetY = marble.worldY + 0.10 - CFG.CAMERA_OFFSET;
@@ -4221,7 +4235,7 @@ function startGame() {
   var startScene = gameMode === 'levels' ? (LEVEL_SCENES[currentLevel] || 'grandma_backyard') : (progress.equippedScene || 'grandma_backyard');
   switchScene(startScene);
   // 重置闯关模式宝箱
-  levelTreasureSeq = 0; levelTreasureId = ''; levelChestsPlaced = 0; levelTreasureChestNum = 0;
+  levelTreasureSeq = 0; levelTreasureId = ''; levelChestsPlaced = 0; levelTreasureChestNum = 0; levelChestSeq = [];
   endlessPool3 = []; endlessChestsPlaced = 0; endlessTypesRevealed = {};
   marble.worldX = -0.3; marble.worldY = -0.6;
   marble.vx = 2.0; marble.vy = 1.5;
@@ -4321,7 +4335,7 @@ function update(dt) {
     marble._jumpFromY = marble.worldY;
     if (marble._landX === undefined) { marble._landX = marble.worldX; marble._landY = marble.worldY; }
     playSfx('luo');
-    marble.scale = 0.85;
+    marble.scale = 0.80;
     gameState = STATE.RESPAWN; animTimer = 0;
   }
 
@@ -4844,7 +4858,7 @@ function startClassicGame(mode) {
     classicData.pits.push({
       worldX: 0.5,
       worldY: pitCenterY + (1 - i) * CLASSIC_PIT_SPACING,
-      radius: 0.083, // 1.5倍大
+      radius: 0.08, // 坑半径
       index: i + 1, // 1, 2, 3
     });
   }
@@ -5020,7 +5034,7 @@ function classicUpdate(dt) {
               cd.phase = CLASSIC_PHASE.SERVING;
               // 初始化坑和相机
               cd.pits = [
-                { worldX: 0.5, worldY: 1.5, radius: 0.083, index: 1 },
+                { worldX: 0.5, worldY: 1.5, radius: 0.08, index: 1 },
                 { worldX: 0.5, worldY: 0.5, radius: 0.083, index: 2 },
                 { worldX: 0.5, worldY: -0.5, radius: 0.083, index: 3 }
               ];
@@ -5394,23 +5408,54 @@ function classicUpdateRolling(dt) {
     var suckDX = suckPit.worldX - suckP.ballX;
     var suckDY = suckPit.worldY - suckP.ballY;
     var suckDist = Math.sqrt(suckDX*suckDX + suckDY*suckDY);
-    // 引力：距离越近加速越快（模拟下坡），最低速度保障
-    var suckSpeed = Math.max(0.5, suckDist * 15) * dt;
+    var suckSpeed = Math.max(0.1, suckDist * 10) * dt;
     if (suckDist < suckSpeed) {
-      // 到达坑中心
-      suckP.ballX = suckPit.worldX;
-      suckP.ballY = suckPit.worldY;
-      suckP.ballVX = 0; suckP.ballVY = 0;
+      // 回滚到坑心
       cd._pitSuck = false;
-      classicOnBallStop();
+      cd._pitRollback = true;
+      cd._pitRollbackPlayer = cd._pitSuckPlayer;
+      cd._pitRollbackFromX = suckP.ballX;
+      cd._pitRollbackFromY = suckP.ballY;
+      cd._pitRollbackFromScale = suckP.ballScale;
+      cd._pitRollbackToX = suckPit.worldX;
+      cd._pitRollbackToY = suckPit.worldY;
+      cd._pitRollbackTimer = 0;
+      suckP.ballVX = 0; suckP.ballVY = 0;
       return;
     }
     suckP.ballX += (suckDX / suckDist) * suckSpeed;
     suckP.ballY += (suckDY / suckDist) * suckSpeed;
     suckP.ballVX = 0; suckP.ballVY = 0;
+    // 缩放渐变到 0.80
+    suckP.ballScale += (0.80 - suckP.ballScale) * 0.25;
     // 纹理跟随
     suckP.ballTexOffX += (suckDX / suckDist) * suckSpeed * 150;
     suckP.ballTexOffY += (suckDY / suckDist) * suckSpeed * 150;
+    return;
+  }
+
+  // 回滚动画：球心对准坑心
+  if (cd._pitRollback) {
+    cd._pitRollbackTimer += dt;
+    var rbDur = 0.15;
+    var rb = cd._pitRollbackPlayer;
+    var rp = cd.players[rb];
+    var rt = Math.min(cd._pitRollbackTimer / rbDur, 1);
+    var re = rt < 0.5 ? 2*rt*rt : 1 - Math.pow(-2*rt+2,2)/2;
+    rp.ballX = cd._pitRollbackFromX + (cd._pitRollbackToX - cd._pitRollbackFromX) * re;
+    rp.ballY = cd._pitRollbackFromY + (cd._pitRollbackToY - cd._pitRollbackFromY) * re;
+    rp.ballScale += (0.80 - rp.ballScale) * 0.25;
+    var rddx = (cd._pitRollbackToX - cd._pitRollbackFromX);
+    var rddy = (cd._pitRollbackToY - cd._pitRollbackFromY);
+    rp.ballTexOffX += rddx * 150 * dt / rbDur;
+    rp.ballTexOffY += rddy * 150 * dt / rbDur;
+    if (rt >= 1) {
+      rp.ballX = cd._pitRollbackToX;
+      rp.ballY = cd._pitRollbackToY;
+      rp.ballScale = 0.80;
+      cd._pitRollback = false;
+      classicOnBallStop();
+    }
     return;
   }
 
@@ -5421,7 +5466,7 @@ function classicUpdateRolling(dt) {
     cd.cameraTargetY = cp2.ballY;
   }
 
-  // 检查当前玩家球：中心进入坑边缘 + 动力不足 → 吸入
+  // 检查当前玩家球：中心在坑半径×1.1内且动力不足 → 吸入
   var p = cd.players[cd.currentPlayer];
   var speed = Math.sqrt(p.ballVX * p.ballVX + p.ballVY * p.ballVY);
   for (var pi3 = 0; pi3 < cd.pits.length; pi3++) {
@@ -5429,12 +5474,13 @@ function classicUpdateRolling(dt) {
     var pdx = p.ballX - ptest.worldX;
     var pdy = p.ballY - ptest.worldY;
     var pdist = Math.sqrt(pdx*pdx + pdy*pdy);
-    if (pdist < ptest.radius && speed < 0.25) {
-      // 中心在坑半径内且速度不足，吸入
+    if (pdist < ptest.radius * 1.1 && speed < 0.12) {
+      // 中心在坑半径×1.1 内且速度不足，吸入
       cd._pitSuck = true;
       cd._pitSuckPit = ptest;
       cd._pitSuckPlayer = cd.currentPlayer;
       cd._pitSuckTimer = 0;
+      cd._pitSuckFromScale = p.ballScale;
       p.ballVX = 0; p.ballVY = 0;
       cd.hintText = '吸入坑中…';
       playSfx('luo');
@@ -5924,6 +5970,7 @@ function classicShoot() {
   p.ballVX = Math.sin(cd.aimingAngle) * speed;
   p.ballVY = Math.cos(cd.aimingAngle) * speed;
 
+  p.ballScale = 1;
   cd.phase = CLASSIC_PHASE.ROLLING;
   cd.chargePower = 0;
   cd.chargeDir = 1;
@@ -6029,7 +6076,7 @@ function classicAIShoot(pIdx) {
 function classicCheckBallCollision() {
   const cd = classicData;
   const np = cd.players.length;
-  const contactDist = CFG.MARBLE_RADIUS * 2; // 0.09
+  const contactDist = CLASSIC_MARBLE_R * 2; // 0.112
 
   // ---- 坑内保护：球中心在坑半径70%内不受碰撞 ----
   var inPit = [];
@@ -6181,19 +6228,20 @@ function classicRender() {
   for (let i = 0; i < cd.pits.length; i++) {
     const pit = cd.pits[i];
     const sp = classicWorldToScreen(pit.worldX, pit.worldY);
-    var pitR = pit.radius * 400 * rz; // 屏幕像素半径（随缩放）
+    var visualR = CLASSIC_PIT_VISUAL_R * 400 * rz; // 背景图视觉半径
+    var pitR = pit.radius * 400 * rz; // 实际坑半径
 
-    // 坑纹理
+    // 坑纹理（用视觉半径）
     if (kengImg && kengImg.width) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(sp.x, sp.y, pitR, 0, Math.PI * 2);
+      ctx.arc(sp.x, sp.y, visualR, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(kengImg, sp.x - pitR, sp.y - pitR, pitR * 2, pitR * 2);
+      ctx.drawImage(kengImg, sp.x - visualR, sp.y - visualR, visualR * 2, visualR * 2);
       ctx.restore();
     } else {
       ctx.beginPath();
-      ctx.arc(sp.x, sp.y, pitR, 0, Math.PI * 2);
+      ctx.arc(sp.x, sp.y, visualR, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(50,30,15,0.7)';
       ctx.fill();
     }
@@ -6203,6 +6251,15 @@ function classicRender() {
     ctx.font = 'bold 18px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('' + pit.index, sp.x, sp.y + 6);
+
+    // 半透明红色实际坑大小
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, pitR, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,0,0,0.2)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
   // 3. 出发线（水平无限延伸，铺满屏幕）
@@ -6237,7 +6294,7 @@ function classicRender() {
     if (p.alive === false) continue; // 已出局不画（仅多人模式）
     const sp = classicWorldToScreen(p.ballX, p.ballY);
 
-    var ballR = CFG.MARBLE_RADIUS * 400 * rz; // 球屏幕半径（随缩放）
+    var ballR = CLASSIC_MARBLE_R * 400 * rz * (p.ballScale || 1); // 球屏幕半径
     var bx = sp.x, by = sp.y;
 
     // ===== 亮色小投影 =====
@@ -7450,7 +7507,7 @@ function loadStorySlides(level) {
   storySlideImgs = [];
   storySlideIndex = 0;
   storySlideTimer = 0;
-  for (var si = 1; si <= 6; si++) {
+  for (var si = 1; si <= 5; si++) {
     (function(idx, src) {
       var img = wx.createImage();
       img.onload = function() { storySlideImgs[idx] = img; };
@@ -9612,14 +9669,14 @@ function drawClassicDisclaimerPopup() {
   ctx.fillText('开发者的话', W / 2, py + 35);
   // 正文
   var lines = [
-    '做这个小游戏，是想还原小时候',
-    '趴在地上打弹珠的日子。',
+    '做这个小游戏，是想留住属于',
+    '8090这一代人一些美好的童年回忆。',
     '',
     '各地玩法不同，我只能按自己的',
     '记忆先做一版。目前是人机对战，',
     '觉得好玩的话，后面出联机模式～',
     '',
-    '有 bug 有想法，随时告诉我 👇',
+    '有问题有想法，随时告诉我 👇',
   ];
   ctx.fillStyle = '#444'; ctx.font = '15px sans-serif'; ctx.textAlign = 'center';
   for (var li = 0; li < lines.length; li++) {
@@ -9795,6 +9852,7 @@ var levelTreasureSeq = 0;       // 闯关模式宝箱坑序号
 var levelTreasureId = '';       // 闯关模式宝箱宝物ID
 var levelChestsPlaced = 0;      // 本关已放宝箱数（防重复）
 var levelTreasureChestNum = 0;  // 第几个宝箱是宝物（随机）
+var levelChestSeq = [];         // 预计算的宝箱坑序号
 var endlessPool3 = [];          // 无尽模式每局3种宝物池
 var endlessChestsPlaced = 0;    // 无尽模式本局已放宝箱数
 var endlessTypesRevealed = {};  // 无尽模式本局已出现的宝物类型
@@ -9875,52 +9933,60 @@ function markTreasureForNewPits() {
   }
   // 闯关模式：关卡专属宝物+道具宝箱
   else if (gameMode === 'levels') {
-    // 每日上限已取消
     var lvl = currentLevel;
     var maxChests = LEVEL_CHEST_COUNTS[lvl] || 0;
     if (maxChests <= 0) return;
     var levelPool = lvl >= 2 ? getLevelTreasures(lvl) : [];
-    // 已放宝箱（用独立计数器，防跨坑残留）
     if (levelChestsPlaced >= maxChests) return;
-    // 计算宝箱间距：均匀分布，避开目标坑
     var targetMax = (LEVEL_TARGETS[lvl] || 10) - 2;
     if (targetMax < 3) targetMax = 3;
+    // 首次：预定每个宝箱的目标坑序号（均匀散布）
     if (!levelTreasureSeq) {
-      var spacing = Math.floor(targetMax / (maxChests + 1));
-      if (spacing < 5) spacing = 5;
-      levelTreasureSeq = spacing + Math.floor(Math.random() * Math.max(1, spacing / 2));
-      // 随机选一个宝箱放宝物
+      levelTreasureSeq = 1;
+      levelChestSeq = [];
+      var minGap = 4;
+      var chestRange = targetMax - minGap;
+      for (var ci = 0; ci < maxChests; ci++) {
+        var slot = Math.floor((ci + 1) * chestRange / (maxChests + 1)) + minGap;
+        slot += Math.floor(Math.random() * 5) - 2; // ±2 随机抖动
+        if (slot < minGap) slot = minGap;
+        if (slot > targetMax) slot = targetMax;
+        levelChestSeq.push(slot);
+      }
+      levelChestSeq.sort(function(a,b){ return a - b; });
       levelTreasureChestNum = 1 + Math.floor(Math.random() * maxChests);
     }
+    // 收集范围内未标记的可选坑
+    var candPits = [];
     for (var pj = 0; pj < pits.length; pj++) {
       var ppit = pits[pj];
       if (ppit.visited || ppit.hasTreasure || ppit._levelMarked) continue;
       var vSeq = ppit._index - treasureFirstPitIndex + 1;
       if (vSeq >= levelTreasureSeq && vSeq <= targetMax) {
-        ppit.hasTreasure = true;
-        levelChestsPlaced++;
-        // 第一个宝箱给宝物，其余给道具
-        var giveTreasure = (lvl >= 2 && levelPool.length > 0 && levelChestsPlaced === levelTreasureChestNum);
-        if (giveTreasure) {
-          ppit.treasureId = levelPool[Math.floor(Math.random() * levelPool.length)].id;
-          ppit._levelIsProp = false;
-        } else {
-          var propTypes = ['jump','force']; // 宝箱不出复活
-          for (var pi8 = propTypes.length - 1; pi8 > 0; pi8--) {
-            var rj = Math.floor(Math.random() * (pi8 + 1));
-            var tmp = propTypes[pi8]; propTypes[pi8] = propTypes[rj]; propTypes[rj] = tmp;
-          }
-          var propCount = 1 + (Math.random() < 0.4 ? 1 : 0);
-          ppit._levelProps = propTypes.slice(0, propCount);
-          ppit._levelIsProp = true;
-        }
-        // 下一宝箱间距
-        var rem = maxChests - levelChestsPlaced;
-        var nextSpacing = rem > 0 ? Math.floor((targetMax - vSeq) / (rem + 1)) : 999;
-        if (nextSpacing < 5) nextSpacing = 5;
-        levelTreasureSeq = vSeq + nextSpacing;
-        if (levelChestsPlaced >= maxChests) break;
+        candPits.push(ppit);
       }
+    }
+    // 将未放的宝箱均匀分布在可选坑中
+    if (candPits.length > 0 && levelChestsPlaced < maxChests) {
+      for (var ci = 0; ci < candPits.length && levelChestsPlaced < maxChests; ci++) {
+        var cp = candPits[ci];
+        var cvSeq = cp._index - treasureFirstPitIndex + 1;
+        if (cvSeq >= levelChestSeq[levelChestsPlaced]) {
+          cp.hasTreasure = true;
+          cp._levelMarked = true;
+          levelChestsPlaced++;
+          var giveTreasure = (lvl >= 2 && levelPool.length > 0 && levelChestsPlaced === levelTreasureChestNum);
+          if (giveTreasure) {
+            cp.treasureId = levelPool[Math.floor(Math.random() * levelPool.length)].id;
+            cp._levelIsProp = false;
+          } else {
+            var pidx = Math.floor(Math.random() * 2);
+            cp._levelProps = [['jump','force'][pidx]];
+            cp._levelIsProp = true;
+          }
+        }
+      }
+      levelTreasureSeq = (candPits[candPits.length-1]._index - treasureFirstPitIndex + 1) + 1;
     }
   }
   markFriendImgsForNewPits();
@@ -9979,6 +10045,7 @@ function checkLevelTreasureDropPit() {
 // 免打扰模式切换
 function toggleQuietMode() {
   quietMode = !quietMode;
+  if (!quietMode) { treasurePopSkipped = false; try { wx.setStorageSync('zhuzhu_treasure_skip', false); } catch(e) {} }
   try { wx.setStorageSync('zhuzhu_quiet_mode', quietMode); } catch(e) {}
 }
 
@@ -10057,6 +10124,7 @@ function handleLevelSelTouch(tx, ty) {
     if (tx > cx + cw - 80 && tx < cx + cw - 10 && ty > ly && ty < ly + cardH) {
       if (!levelSelDragging && li <= maxUnlockedLevel && li !== currentLevel) {
         currentLevel = li; switchScene(LEVEL_SCENES[li] || 'grandma_backyard');
+        levelTreasureSeq = 0; levelChestsPlaced = 0; levelTreasureChestNum = 0; levelChestSeq = [];
         pits = []; currentPitIndex = 0; pitIdCounter = 0;
         var rs = CFG.PIT_RADIUS_MIN + Math.random()*0.015;
         spawnPitAt(0.58+Math.random()*0.08, rs*2*(2+Math.random()), rs);
