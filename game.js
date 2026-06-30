@@ -1133,6 +1133,8 @@ function goHome() {
   livesData.lives = 3;
   classicShowModeSelect = false;
   classicData = null;
+  classicDiffPopup = false;
+  classicHistPopup = false;
   // 清理所有弹窗状态，防止泄漏到首页导致点击失效
   treasurePopup = null;
   treasureGoConfirm = false;
@@ -5845,8 +5847,9 @@ function classicTriggerWin(winnerIdx, hintText, sfxName) {
   cd._winSfx = sfxName || '';
   // 记录历史
   var dur = cd._gameStartTime ? Math.floor((Date.now() - cd._gameStartTime) / 1000) : 0;
+  var roundNum = classicHistory.length + 1; // unshift前算号
   classicHistory.unshift({
-    round: classicHistory.length + 1,
+    round: roundNum,
     date: getDateString(),
     winner: winnerIdx === 0 ? 'player' : 'xiaoDi',
     difficulty: classicDifficulty,
@@ -7327,8 +7330,7 @@ function classicDrawHistPopup() {
   var tblY = py + 84, tblH = ph - 120;
   ctx.save();
   ctx.beginPath(); ctx.rect(px + 20, tblY, pw - 40, tblH); ctx.clip();
-  var rowH = 28, colW = [36, 72, 48, 48, 48];
-  var colX = [px + 24, px + 64, px + 140, px + 192, px + 244];
+  var rowH = 28;
   var hdrY = tblY + classicHistScrollY;
   // 表头
   ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.fillRect(px + 20, hdrY, pw - 40, rowH);
@@ -7390,6 +7392,13 @@ function classicTouchStart(pts, tx, ty) {
   }
   if (classicHistPopup) {
     var pw3 = 360, ph3 = Math.min(H * 0.7, 460), px3 = (W - pw3) / 2, py3 = (H - ph3) / 2;
+    // 滚动
+    var tblAreaY1 = py3 + 78, tblAreaY2 = py3 + ph3 - 30;
+    if (tx > px3 + 20 && tx < px3 + pw3 - 20 && ty > tblAreaY1 && ty < tblAreaY2) {
+      cd._histDragY = ty;
+      cd._histDragStarted = true;
+      return;
+    }
     // 关闭
     var cxx4 = px3 + pw3 - 28, cyy4 = py3 + 16;
     if (tx > cxx4 - 16 && tx < cxx4 + 16 && ty > cyy4 && ty < cyy4 + 28) { classicHistPopup = false; return; }
@@ -7621,6 +7630,18 @@ function classicTouchStart(pts, tx, ty) {
 
 function classicTouchMove(pts, tx, ty) {
   const cd = classicData;
+
+  // 历史弹窗滚动
+  if (classicHistPopup && cd._histDragStarted) {
+    var dy2 = ty - (cd._histDragY || ty);
+    cd._histDragY = ty;
+    classicHistScrollY += dy2;
+    var totalRows2 = classicHistory.length || 0;
+    var maxS = 0, minS = -(totalRows2 * 28 - 200);
+    if (classicHistScrollY > maxS) classicHistScrollY = maxS;
+    if (classicHistScrollY < minS) classicHistScrollY = minS;
+    return;
+  }
 
   // 规则弹窗滚动
   if (cd.showRules && cd._draggingRule) {
@@ -10373,7 +10394,13 @@ function handleLevelSelTouch(tx, ty) {
         for (var j3=0; j3<3; j3++) spawnNextPit();
         marble.worldX=0.5; marble.worldY=-CFG.MARBLE_RADIUS;
         marble.vx=0; marble.vy=0; marble.rotation=0; marble.scale=1;
-        score=0; comboCount=0; gameState=STATE.INTRO; animTimer = 0; levelSelScrollY=0;
+        score=0; comboCount=0; sessionBestCombo=0;
+        duplicateTreasureStash = {}; treasureExchanged = false;
+        treasureFirstPitIndex = pits.length > 0 ? pits[0]._index : 0;
+        treasureNextPitSeq = 6 + Math.floor(Math.random() * 6);
+        endlessPool3 = []; endlessChestsPlaced = 0; endlessTypesRevealed = {};
+        markTreasureForNewPits();
+        gameState=STATE.INTRO; animTimer = 0; levelSelScrollY=0;
       }
       return;
     }
