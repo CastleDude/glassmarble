@@ -558,7 +558,8 @@ function spawnNextPit() {
     // 第一个坑：在珠珠前方偏右
     worldX = 0.58 + Math.random() * 0.08;
     radius = CFG.PIT_RADIUS_MIN;
-    worldY = marble.worldY + radius * 2 * (7 + Math.random() * 3);  // 7~10倍直径
+    var introEndY2 = -CFG.MARBLE_RADIUS;
+    worldY = introEndY2 + radius * 2 * (3 + Math.random() * 1);  // 3~4倍直径
   } else {
     // 方向随机变化（不只左右交替），难度越高横向偏移越大
     const totalP = (progress.totalPits || 0);
@@ -572,11 +573,11 @@ function spawnNextPit() {
     const diameter = lastPit.radius * 2;
     var minMul, maxMul;
     if (totalP < 150) {
-      minMul = 3.0; maxMul = 5.0;
+      minMul = 3.0; maxMul = 4.5;
     } else if (totalP < 600) {
-      minMul = 3.0; maxMul = 6.5;
+      minMul = 3.0; maxMul = 6.0;
     } else {
-      minMul = 3.0; maxMul = 8.0;
+      minMul = 3.0; maxMul = 7.0;
     }
     const multiplier = minMul + Math.random() * (maxMul - minMul);
     worldY = lastPit.worldY + diameter * multiplier;
@@ -968,7 +969,6 @@ function finishSink() {
   // 短暂重生状态
   if (marble._jumpFromX === undefined) { marble._jumpFromX = marble.worldX; marble._jumpFromY = marble.worldY; }
   if (marble._landX === undefined) { marble._landX = marble.worldX; marble._landY = marble.worldY; }
-  playSfx('luo');
   gameState = STATE.RESPAWN;
   animTimer = 0;
   saveAllData();
@@ -1139,6 +1139,7 @@ function restartGame() {
   // 重新开始游戏
   levelTreasureSeq = 0; levelTreasureId = ''; levelChestsPlaced = 0; levelTreasureChestNum = 0; levelChestSeq = [];
   endlessPool3 = []; endlessChestsPlaced = 0; endlessTypesRevealed = {};
+  duplicateTreasureStash = {};
   sessionProps = { heart: 1, jump: 1, force: 1 };
   // 签到攒的道具叠加到本局
   if (zhuzhuProps.heart > 0) { sessionProps.heart += zhuzhuProps.heart; zhuzhuProps.heart = 0; }
@@ -1161,7 +1162,9 @@ function restartGame() {
   currentPitIndex = 0;
   pitIdCounter = 0;
   const r = CFG.PIT_RADIUS_MIN;
-  spawnPitAt(0.58 + Math.random() * 0.08, marble.worldY + r * 2 * (7 + Math.random() * 3), r);
+  // 第一坑放在 intro 结束后的位置前方（球终点 ≈ -0.045）
+var introEndY = -CFG.MARBLE_RADIUS;
+spawnPitAt(0.58 + Math.random() * 0.08, introEndY + r * 2 * (3 + Math.random() * 1), r);
   for (let i = 0; i < 3; i++) spawnNextPit();
 
   // 标记宝物坑
@@ -1172,6 +1175,7 @@ function restartGame() {
   score = 0;
   comboCount = 0;
   sessionBestCombo = 0;
+  duplicateTreasureStash = {};
   sessionProps = { heart: 1, jump: 1, force: 1 };
   // 签到攒的道具叠加到本局
   if (zhuzhuProps.heart > 0) { sessionProps.heart += zhuzhuProps.heart; zhuzhuProps.heart = 0; }
@@ -2374,17 +2378,17 @@ function drawBestScore() {
 
 // --- 生命显示（右上角） ---
 function drawLives() {
-  ctx.textAlign = 'right';
+  ctx.textAlign = 'left';
   const ly = H * 0.15;
   if (uiIcons.heart) {
     const hs = 32;
-    ctx.drawImage(uiIcons.heart, W - 68, ly - hs / 2, hs, hs);
+    ctx.drawImage(uiIcons.heart, W - 78, ly - hs / 2, hs, hs);
     // 数字投影
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.font = 'bold 20px sans-serif';
-    ctx.fillText(livesData.lives, W - 16, ly + 7);
+    ctx.fillText(livesData.lives, W - 41, ly + 7);
     ctx.fillStyle = '#fff';
-    ctx.fillText(livesData.lives, W - 18, ly + 6);
+    ctx.fillText(livesData.lives, W - 43, ly + 6);
   } else {
     ctx.font = 'bold 16px sans-serif';
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -2395,12 +2399,12 @@ function drawLives() {
   // 关卡选择按钮（chose.png，44x44，右移10px）
   if (gameMode === 'levels') {
     if (uiIcons.chose && uiIcons.chose.width) {
-      ctx.drawImage(uiIcons.chose, W - 61, ly + 81, 44, 44);
+      ctx.drawImage(uiIcons.chose, W - 71, ly + 81, 44, 44);
     } else {
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      roundRectPath(W - 61, ly + 81, 44, 44, 6); ctx.fill();
+      roundRectPath(W - 71, ly + 81, 44, 44, 6); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('选', W - 39, ly + 108);
+      ctx.fillText('选', W - 49, ly + 108);
     }
   }
 }
@@ -4249,7 +4253,9 @@ function startGame() {
   currentPitIndex = 0;
   pitIdCounter = 0;
   const r = CFG.PIT_RADIUS_MIN;
-  spawnPitAt(0.58 + Math.random() * 0.08, marble.worldY + r * 2 * (7 + Math.random() * 3), r);
+  // 第一坑放在 intro 结束后的位置前方（球终点 ≈ -0.045）
+var introEndY = -CFG.MARBLE_RADIUS;
+spawnPitAt(0.58 + Math.random() * 0.08, introEndY + r * 2 * (3 + Math.random() * 1), r);
   for (let i = 0; i < 3; i++) spawnNextPit();
 
   // 标记宝物坑
@@ -4260,6 +4266,7 @@ function startGame() {
   score = 0;
   comboCount = 0;
   sessionBestCombo = 0;
+  duplicateTreasureStash = {};
   sessionProps = { heart: 1, jump: 1, force: 1 };
   // 签到攒的道具叠加到本局
   if (zhuzhuProps.heart > 0) { sessionProps.heart += zhuzhuProps.heart; zhuzhuProps.heart = 0; }
@@ -4640,9 +4647,9 @@ function render(dt) {
   var tix2, tiy2;
   var ly3 = H * 0.15;
   if (gameMode === 'levels') {
-    tix2 = W - 68; tiy2 = ly3 + 33;
+    tix2 = W - 78; tiy2 = ly3 + 33;
   } else {
-    tix2 = W - 68; tiy2 = ly3 + 16 + 30;
+    tix2 = W - 78; tiy2 = ly3 + 16 + 30;
   }
   if (gameState !== STATE.HOME && gameState !== STATE.CLASSIC && gameState !== STATE.STORY && gameState !== STATE.FEEDBACK && gameState !== STATE.CHECKIN && gameState !== STATE.TREASURE && gameState !== STATE.BADGES && gameState !== STATE.RANK && gameState !== STATE.CONFIRM && gameState !== STATE.SETTINGS && gameState !== STATE.SKIN) {
     var icoSz2 = 32;
@@ -4655,9 +4662,9 @@ function render(dt) {
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.font = 'bold 20px sans-serif';
-    ctx.fillText(sessionTreasureCount, W - 16, tiy2 + icoSz2/2 + 7);
+    ctx.fillText(sessionTreasureCount, W - 26, tiy2 + icoSz2/2 + 7);
     ctx.fillStyle = '#fff';
-    ctx.fillText(sessionTreasureCount, W - 18, tiy2 + icoSz2/2 + 6);
+    ctx.fillText(sessionTreasureCount, W - 28, tiy2 + icoSz2/2 + 6);
     treasureTargetIcon = { x: tix2, y: tiy2, w: icoSz2, h: icoSz2 };
   }
   // 选关弹窗 + 结算
@@ -9050,7 +9057,7 @@ function updateJumpPropAnim(dt) {
         if (isNew) {
           if ((treasureDaily.todayNew || 0) >= 3) {
             duplicateTreasureStash[tp5.treasureId] = (duplicateTreasureStash[tp5.treasureId] || 0) + 1;
-            try { wx.setStorageSync('zhuzhu_dup_stash', duplicateTreasureStash); } catch(e) {}
+            // 不持久化，每局清空
           } else {
             treasureData.found.push(tp5.treasureId);
             treasureData.foundDates[tp5.treasureId] = Date.now();
@@ -9063,7 +9070,7 @@ function updateJumpPropAnim(dt) {
         } else {
           // 已拥有→重复暂存
           duplicateTreasureStash[tp5.treasureId] = (duplicateTreasureStash[tp5.treasureId] || 0) + 1;
-          try { wx.setStorageSync('zhuzhu_dup_stash', duplicateTreasureStash); } catch(e) {}
+          // 不持久化，每局清空
         }
         // 无论新旧，都累积宝箱数和显示动画
         sessionTreasureCount++;
@@ -9297,7 +9304,7 @@ function awardTreasure(treasureId, fromX, fromY) {
     sessionTreasureCount++;
     // 重复或超限 → 暂存
     duplicateTreasureStash[t.id] = (duplicateTreasureStash[t.id] || 0) + 1;
-    try { wx.setStorageSync('zhuzhu_dup_stash', duplicateTreasureStash); } catch(e) {}
+    // 不持久化，每局清空
     if (treasureExchanged) treasureExchanged = false; // 新重复出现，恢复兑换提示
   } else {
     // 新宝物入库
@@ -9644,7 +9651,7 @@ function handleTreasureGoConfirmTouch(tx, ty) {
     if (tx > W/2 + 16 && tx < W/2 + bw4 + 16 && ty > by4 && ty < by4 + bh4) {
       livesData.lives = Math.min(livesData.lives + dupHearts, 99);
       duplicateTreasureStash = {};
-      try { wx.setStorageSync('zhuzhu_dup_stash', duplicateTreasureStash); } catch(e) {}
+      // 不持久化，每局清空
       try { wx.setStorageSync('zhuzhu_lives', JSON.stringify(livesData)); } catch(e) {}
       treasureGoConfirm = false; return true;
     }
@@ -9790,7 +9797,7 @@ function handleDupExchangeTouch(tx, ty) {
     treasureExchangedHearts = hearts;
     duplicateTreasureStash = {};
     treasureExchanged = true;
-    try { wx.setStorageSync('zhuzhu_dup_stash', duplicateTreasureStash); } catch(e) {}
+    // 不持久化，每局清空
     try { wx.setStorageSync('zhuzhu_lives', JSON.stringify(livesData)); } catch(e) {}
     dupExchangePopup = false;
     // 返回到空闲状态，玩家可以继续
@@ -10020,6 +10027,7 @@ function checkLevelTreasureDropPit() {
       saveProps();
       pendingPropList = [];
       pendingPropType = null;
+      playSfx('luo');
     }
   } else if (targetPit.treasureId) {
     // 宝物宝箱
@@ -10126,12 +10134,13 @@ function handleLevelSelTouch(tx, ty) {
         currentLevel = li; switchScene(LEVEL_SCENES[li] || 'grandma_backyard');
         levelTreasureSeq = 0; levelChestsPlaced = 0; levelTreasureChestNum = 0; levelChestSeq = [];
         pits = []; currentPitIndex = 0; pitIdCounter = 0;
-        var rs = CFG.PIT_RADIUS_MIN + Math.random()*0.015;
-        spawnPitAt(0.58+Math.random()*0.08, rs*2*(2+Math.random()), rs);
+        var rr = CFG.PIT_RADIUS_MIN;
+        var introEndY3 = -CFG.MARBLE_RADIUS;
+        spawnPitAt(0.58+Math.random()*0.08, introEndY3 + rr * 2 * (3 + Math.random() * 1), rr);
         for (var j3=0; j3<3; j3++) spawnNextPit();
         marble.worldX=0.5; marble.worldY=-CFG.MARBLE_RADIUS;
         marble.vx=0; marble.vy=0; marble.rotation=0; marble.scale=1;
-        score=0; comboCount=0; gameState=STATE.IDLE; levelSelScrollY=0;
+        score=0; comboCount=0; gameState=STATE.INTRO; animTimer = 0; levelSelScrollY=0;
       }
       return;
     }
@@ -10176,7 +10185,7 @@ function init() {
     try { var qm = wx.getStorageSync('zhuzhu_quiet_mode'); if (qm !== undefined && qm !== '') quietMode = !!qm; } catch(e) {}
     try { var tsk = wx.getStorageSync('zhuzhu_treasure_skip'); if (tsk !== undefined && tsk !== '') treasurePopSkipped = !!tsk; } catch(e) {}
     try { var cdSkip = wx.getStorageSync('zhuzhu_classic_disclaimer_skip'); if (cdSkip === '1') classicDisclaimerSkip = true; } catch(e) {}
-    try { var ds = wx.getStorageSync('zhuzhu_dup_stash'); if (ds) duplicateTreasureStash = ds; } catch(e) {}
+    // 重复宝物暂存每局清空，不从存储加载
     try { var pp = wx.getStorageSync('zhuzhu_props'); if (pp) zhuzhuProps = pp; } catch(e) {}
     try { var fpg = wx.getStorageSync('zhuzhu_free_props_given'); if (fpg === 'true') freePropsGivenToday = true; } catch(e) {}
     if (!treasureData.foundDates) treasureData.foundDates = {};
