@@ -122,6 +122,11 @@ const CLASSIC_PIT_VISUAL_R = 0.1;   // 经典模式坑背景视觉半径
 
 let classicData = null;
 let classicShowModeSelect = false; // 首页弹出模式选择
+let classicDifficulty = '初级';    // 经典模式难度
+let classicHistory = [];           // 经典模式历史记录 [{round,date,winner,difficulty,duration}]
+let classicDiffPopup = false;      // 难度选择弹窗
+let classicHistPopup = false;      // 历史记录弹窗
+let classicHistScrollY = 0;        // 历史表格滚动
 
 // === 微信用户头像昵称 ===
 var userProfile = { nickname: '', avatar: '' }; // avatar为base64或本地路径
@@ -149,7 +154,7 @@ function _saveAvatarInfo(nickName, avatarUrl, onDone) {
   submitScoreToCloud(); // 授权后重传最高分，更新云端昵称头像
   if (onDone) onDone();
   // 后台异步转base64（静默，不影响交互）
-  if (avatarUrl) {
+  if (avatarUrl && typeof wx.getImageInfo === 'function') {
     wx.getImageInfo({
       src: avatarUrl,
       success: function(imgRes) {
@@ -576,7 +581,7 @@ function spawnNextPit() {
     const diameter = lastPit.radius * 2;
     var minMul, maxMul;
     if (totalP < 150) {
-      minMul = 3.0; maxMul = 4.5;
+      minMul = 3.0; maxMul = 5.0;
     } else if (totalP < 600) {
       minMul = 3.0; maxMul = 6.0;
     } else {
@@ -4795,6 +4800,7 @@ function startClassicGame(mode) {
   var savedMultiRoomId = classicData ? classicData._multiRoomId : '';
   var savedMultiIsHost = classicData ? classicData._multiIsHost : false;
   resetClassicData();
+  classicData._gameStartTime = Date.now();
   propGetPopup = false; propGetType = '';
   loadPlayerProfile();
   // 恢复多人状态（resetClassicData会清掉）
@@ -5836,7 +5842,18 @@ function classicTriggerWin(winnerIdx, hintText, sfxName) {
   cd.winner = winnerIdx;
   cd._winDelay = 2.0;
   cd.hintText = hintText;
-  cd._winSfx = sfxName || ''; // 延迟到弹窗时播放
+  cd._winSfx = sfxName || '';
+  // 记录历史
+  var dur = cd._gameStartTime ? Math.floor((Date.now() - cd._gameStartTime) / 1000) : 0;
+  classicHistory.unshift({
+    round: classicHistory.length + 1,
+    date: getDateString(),
+    winner: winnerIdx === 0 ? 'player' : 'xiaoDi',
+    difficulty: classicDifficulty,
+    duration: dur
+  });
+  if (classicHistory.length > 50) classicHistory = classicHistory.slice(0, 50);
+  try { wx.setStorageSync('zhuzhu_classic_history', classicHistory); } catch(e) {}
 }
 
 // 聚焦玩家球 + 当前目标坑，占屏幕中心60%
@@ -6083,21 +6100,27 @@ function classicAIShoot(pIdx) {
       }
     }
 
-    // 计算精准角度，加较小随机偏差
+    // 根据难度调整 AI 精度
+    var diffAngle, diffPowerRange, diffMissRate, diffMissAngle;
+    if (classicDifficulty === '初级') {
+      diffAngle = 8; diffPowerRange = 0.20; diffMissRate = 0.20; diffMissAngle = 60;
+    } else if (classicDifficulty === '高级') {
+      diffAngle = 2; diffPowerRange = 0.03; diffMissRate = 0.03; diffMissAngle = 20;
+    } else {
+      diffAngle = 5; diffPowerRange = 0.10; diffMissRate = 0.10; diffMissAngle = 45;
+    }
     var angleToTarget = Math.atan2(targetX - p.ballX, targetY - p.ballY);
-    var deviation = (Math.random() - 0.5) * 2 * (5 * Math.PI / 180); // ±5°
+    var deviation = (Math.random() - 0.5) * 2 * (diffAngle * Math.PI / 180);
     cd.aimingAngle = angleToTarget + deviation;
 
-    // 精确估算蓄力：距离D → 需要速度 v=D*FRICTION → factor=(v/FRICTION-0.05)/0.95 → power=factor^0.5
     var distToTarget = Math.sqrt((targetX-p.ballX)*(targetX-p.ballX) + (targetY-p.ballY)*(targetY-p.ballY));
     var neededV = distToTarget * CFG.FRICTION;
-    var factor = Math.max(0.05, (neededV / CFG.FRICTION - 0.05) / 0.95);
-    var idealPower = Math.pow(factor, 0.5);
-    cd.chargePower = Math.min(1, idealPower * (0.9 + Math.random() * 0.1));
+    var fac = Math.max(0.05, (neededV / CFG.FRICTION - 0.05) / 0.95);
+    var idealPower = Math.pow(fac, 0.5);
+    cd.chargePower = Math.min(1, idealPower * ((1 - diffPowerRange) + Math.random() * diffPowerRange * 2));
 
-    // 偶尔失误（10%概率，偏差翻倍+力度不准）
-    if (Math.random() < 0.10) {
-      cd.aimingAngle += (Math.random() - 0.5) * Math.PI * 0.25;
+    if (Math.random() < diffMissRate) {
+      cd.aimingAngle += (Math.random() - 0.5) * (diffMissAngle * Math.PI / 180);
       cd.chargePower *= 0.5 + Math.random() * 0.4;
     }
 
@@ -6503,6 +6526,9 @@ function classicRender() {
 
   // 6. UI层
   classicDrawUI();
+  // 弹窗
+  if (classicDiffPopup) classicDrawDiffPopup();
+  if (classicHistPopup) classicDrawHistPopup();
   } catch(e) { console.error('[ClassicRender]', e.message, e.stack); }
 }
 
@@ -6825,7 +6851,7 @@ function classicDrawUI() {
   // 竖向方向滑块（宽度=视角按钮直径38，高度加1/3=187）
   const sliderW = 38, sliderH = 187;
   const sliderX = rightCX + btnR - 22;
-  const sliderY = btnCY - btnR - sliderH;
+  const sliderY = btnCY - btnR - sliderH - 50;
   const sliderCX = sliderX + sliderW / 2;
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   roundRectPath(sliderX, sliderY, sliderW, sliderH, sliderW / 2);
@@ -6873,7 +6899,7 @@ function classicDrawUI() {
     ctx.fillText('方向', sliderCX, dirLabelY);
 
     // === 视角切换按钮（me.png / compus.png） ===
-    var viewBtnX = rightCX - btnR + 27, viewBtnY = btnCY - btnR - 33, viewBtnR = 19;
+    var viewBtnX = sliderCX, viewBtnY = H - 150, viewBtnR = 19;
     var viewImg = cd._viewToggle ? uiIcons.compus : uiIcons.me;
     if (viewImg && viewImg.width) {
       ctx.drawImage(viewImg, viewBtnX - viewBtnR, viewBtnY - viewBtnR, viewBtnR * 2, viewBtnR * 2);
@@ -6997,6 +7023,56 @@ function classicDrawUI() {
     ctx.fill();
     ctx.restore();
   }
+  // === 难度标签（贴右，同玩法样式） ===
+  var diffBtnY = ruleBtnY + ruleBtnH + 20;
+  var diffChars = ['难', '度'];
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(ruleBtnX + ruleR, diffBtnY);
+  ctx.lineTo(ruleBtnX + ruleBtnW, diffBtnY);
+  ctx.lineTo(ruleBtnX + ruleBtnW, diffBtnY + ruleBtnH);
+  ctx.lineTo(ruleBtnX + ruleR, diffBtnY + ruleBtnH);
+  ctx.arcTo(ruleBtnX, diffBtnY + ruleBtnH, ruleBtnX, diffBtnY + ruleBtnH - ruleR, ruleR);
+  ctx.arcTo(ruleBtnX, diffBtnY, ruleBtnX + ruleR, diffBtnY, ruleR);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  var diffTextH2 = diffChars.length * ruleGap;
+  var diffStartY = diffBtnY + (ruleBtnH - diffTextH2) / 2 + 10;
+  for (var dci = 0; dci < diffChars.length; dci++) {
+    ctx.fillText(diffChars[dci], ruleBtnX + ruleBtnW / 2, diffStartY + dci * ruleGap);
+  }
+
+  // === 历史标签 ===
+  var histBtnY = diffBtnY + ruleBtnH + 20;
+  var histChars = ['历', '史'];
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(ruleBtnX + ruleR, histBtnY);
+  ctx.lineTo(ruleBtnX + ruleBtnW, histBtnY);
+  ctx.lineTo(ruleBtnX + ruleBtnW, histBtnY + ruleBtnH);
+  ctx.lineTo(ruleBtnX + ruleR, histBtnY + ruleBtnH);
+  ctx.arcTo(ruleBtnX, histBtnY + ruleBtnH, ruleBtnX, histBtnY + ruleBtnH - ruleR, ruleR);
+  ctx.arcTo(ruleBtnX, histBtnY, ruleBtnX + ruleR, histBtnY, ruleR);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  var histTextH = histChars.length * ruleGap;
+  var histStartY = histBtnY + (ruleBtnH - histTextH) / 2 + 10;
+  for (var hci = 0; hci < histChars.length; hci++) {
+    ctx.fillText(histChars[hci], ruleBtnX + ruleBtnW / 2, histStartY + hci * ruleGap);
+  }
+
+  // 难度小字（标题下方居中）
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('难度：' + classicDifficulty, W / 2, CAPSULE_MID_Y + 24);
+
   } catch(e) { console.error('[ClassicDrawUI]', e.message, e.stack); }
 }
 
@@ -7193,11 +7269,148 @@ function classicDrawGameOver() {
 }
 
 // ============================================================
+// 经典模式 — 难度/历史弹窗
+// ============================================================
+function classicDrawDiffPopup() {
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, W, H);
+  var pw = 240, ph = 280;
+  var px = (W - pw) / 2, py = (H - ph) / 2;
+  drawPopupBg3(px, py, pw, ph, 14);
+  // 标题
+  ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('难度选择', W / 2, py + 40);
+  // 关闭按钮
+  var cxx = px + pw - 28, cyy = py + 16;
+  ctx.fillStyle = '#8a6a4a'; ctx.font = '16px sans-serif';
+  ctx.fillText('✕', cxx, cyy + 20);
+  // 选项
+  var diffs = ['初级', '中级', '高级'];
+  for (var di = 0; di < diffs.length; di++) {
+    var dy = py + 60 + di * 60;
+    var sel = (diffs[di] === classicDifficulty);
+    ctx.fillStyle = sel ? '#ED971C' : '#ddd';
+    roundRectPath(px + 40, dy, pw - 80, 44, 10); ctx.fill();
+    ctx.fillStyle = sel ? '#fff' : '#333';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText(diffs[di], W / 2, dy + 30);
+  }
+}
+
+function classicDrawHistPopup() {
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, W, H);
+  var pw = 360, ph = Math.min(H * 0.7, 460);
+  var px = (W - pw) / 2, py = (H - ph) / 2;
+  drawPopupBg3(px, py, pw, ph, 14);
+  // 标题行
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('清空记录', px + 20, py + 34);
+  ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('人机对战记录', W / 2, py + 40);
+  var cxx2 = px + pw - 28, cyy2 = py + 16;
+  ctx.fillStyle = '#8a6a4a'; ctx.font = '16px sans-serif';
+  ctx.fillText('✕', cxx2, cyy2 + 20);
+  // 胜负统计
+  var pWins = 0, dWins = 0;
+  for (var hi = 0; hi < classicHistory.length; hi++) {
+    if (classicHistory[hi].winner === 'player') pWins++; else dWins++;
+  }
+  ctx.fillStyle = '#ED971C'; ctx.font = 'bold 14px sans-serif';
+  var leftTxt = (userProfile.nickname || '玩家') + ' 胜 ' + pWins;
+  var rightTxt = dWins + '  小迪胜';
+  ctx.textAlign = 'right';
+  ctx.fillText(leftTxt, W / 2 - 12, py + 64);
+  ctx.textAlign = 'center';
+  ctx.fillText(':', W / 2, py + 64);
+  ctx.textAlign = 'left';
+  ctx.fillText(rightTxt, W / 2 + 12, py + 64);
+  // 表格
+  var tblY = py + 84, tblH = ph - 120;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(px + 20, tblY, pw - 40, tblH); ctx.clip();
+  var rowH = 28, colW = [36, 72, 48, 48, 48];
+  var colX = [px + 24, px + 64, px + 140, px + 192, px + 244];
+  var hdrY = tblY + classicHistScrollY;
+  // 表头
+  ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.fillRect(px + 20, hdrY, pw - 40, rowH);
+  ctx.fillStyle = '#555'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+  var tblW = pw - 40;
+  var colWs = [tblW/5, tblW/5, tblW/5, tblW/5, tblW/5];
+  var colXs = [px + 20, px + 20 + colWs[0], px + 20 + colWs[0]*2, px + 20 + colWs[0]*3, px + 20 + colWs[0]*4];
+  ctx.fillText('局数', colXs[0] + colWs[0]/2, hdrY + 19);
+  ctx.fillText('日期', colXs[1] + colWs[1]/2, hdrY + 19);
+  ctx.fillText('胜者', colXs[2] + colWs[2]/2, hdrY + 19);
+  ctx.fillText('难度', colXs[3] + colWs[3]/2, hdrY + 19);
+  ctx.fillText('用时', colXs[4] + colWs[4]/2, hdrY + 19);
+  // 数据行
+  for (var hi2 = 0; hi2 < classicHistory.length; hi2++) {
+    var hr = classicHistory[hi2];
+    var ry = hdrY + rowH + hi2 * rowH;
+    if (ry + rowH < tblY || ry > tblY + tblH) continue;
+    if (hi2 % 2 === 0) { ctx.fillStyle = 'rgba(0,0,0,0.05)'; ctx.fillRect(px + 20, ry, pw - 40, rowH); }
+    ctx.fillStyle = '#333'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(hr.round || '-', colXs[0] + colWs[0]/2, ry + 19);
+    ctx.fillText((hr.date || '').substring(5), colXs[1] + colWs[1]/2, ry + 19);
+    ctx.fillText(hr.winner === 'player' ? (userProfile.nickname || '玩家') : '小迪', colXs[2] + colWs[2]/2, ry + 19);
+    ctx.fillText(hr.difficulty || '-', colXs[3] + colWs[3]/2, ry + 19);
+    var ds = hr.duration || 0;
+    var dm = Math.floor(ds / 60), dss = ds % 60;
+    ctx.fillText(dm + '分' + dss + '秒', colXs[4] + colWs[4]/2, ry + 19);
+  }
+  ctx.restore();
+  // 底部提示
+  ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('仅保留 50 条历史数据', W / 2, py + ph - 24);
+}
+
+// ============================================================
 // 经典模式 — 触摸事件
 // ============================================================
 function classicTouchStart(pts, tx, ty) {
   if (!classicData) return;
   const cd = classicData;
+
+  // === 弹窗处理 ===
+  if (classicDiffPopup) {
+    var pw2 = 240, ph2 = 280, px2 = (W - pw2) / 2, py2 = (H - ph2) / 2;
+    // 关闭
+    var cxx3 = px2 + pw2 - 28, cyy3 = py2 + 16;
+    if (tx > cxx3 - 16 && tx < cxx3 + 16 && ty > cyy3 && ty < cyy3 + 28) { classicDiffPopup = false; return; }
+    // 选项
+    var diffs = ['初级', '中级', '高级'];
+    for (var di = 0; di < diffs.length; di++) {
+      var dy = py2 + 60 + di * 60;
+      if (tx > px2 + 40 && tx < px2 + pw2 - 40 && ty > dy && ty < dy + 44) {
+        classicDifficulty = diffs[di];
+        try { wx.setStorageSync('zhuzhu_classic_difficulty', classicDifficulty); } catch(e) {}
+        classicDiffPopup = false;
+        return;
+      }
+    }
+    return;
+  }
+  if (classicHistPopup) {
+    var pw3 = 360, ph3 = Math.min(H * 0.7, 460), px3 = (W - pw3) / 2, py3 = (H - ph3) / 2;
+    // 关闭
+    var cxx4 = px3 + pw3 - 28, cyy4 = py3 + 16;
+    if (tx > cxx4 - 16 && tx < cxx4 + 16 && ty > cyy4 && ty < cyy4 + 28) { classicHistPopup = false; return; }
+    // 清空记录
+    if (tx > px3 + 20 && tx < px3 + 80 && ty > py3 + 18 && ty < py3 + 40) {
+      classicHistory = [];
+      try { wx.setStorageSync('zhuzhu_classic_history', classicHistory); } catch(e) {}
+      return;
+    }
+    return;
+  }
+
+  // === 右侧标签按钮 ===
+  var tabW2 = 28, tabH2 = 44, tabX2 = W - tabW2;
+  var avatarY2 = 112;
+  var tabY_diff2 = avatarY2 + tabH2 + 20;
+  var tabY_hist2 = tabY_diff2 + tabH2 + 20;
+  if (tx > tabX2 && tx < W) {
+    if (ty > tabY_diff2 && ty < tabY_diff2 + tabH2) { classicDiffPopup = true; return; }
+    if (ty > tabY_hist2 && ty < tabY_hist2 + tabH2) { classicHistPopup = true; classicHistScrollY = 0; return; }
+  }
 
   // 多人模式大厅
   if (cd._multiMode === 'lobby') {
@@ -7336,7 +7549,7 @@ function classicTouchStart(pts, tx, ty) {
   }
 
   // 视角切换按钮（蓄力按钮右上方）：聚焦自己 ←→ 全景
-  var viewBtnX2 = W - 83, viewBtnY2 = H - 163, viewBtnR2 = 19;
+  var viewBtnX2 = W - 33, viewBtnY2 = H - 150, viewBtnR2 = 19;
   if (Math.sqrt((tx - viewBtnX2) ** 2 + (ty - viewBtnY2) ** 2) < viewBtnR2 + 8) {
     cd._viewToggle = !cd._viewToggle;
     cd._viewManual = true; // 手动切换，自动逻辑不再干预
@@ -7385,8 +7598,8 @@ function classicTouchStart(pts, tx, ty) {
     }
 
     // 方向滑块（右侧，蓄力按钮上方）
-    const sliderX3 = W - 52, sliderW3 = 38, sliderY3 = H - 317, sliderH3 = 187;
-    if (tx > sliderX3 - 15 && tx < sliderX3 + sliderW3 + 15 && ty > sliderY3 - 10 && ty < sliderY3 + sliderH3 + 10) {
+    const sliderX3 = W - 70 + 40 - 22, sliderW3 = 38, sliderY3 = H - 90 - 40 - 187 - 50, sliderH3 = 187;
+    if (tx > sliderX3 - 5 && tx < sliderX3 + sliderW3 + 5 && ty > sliderY3 && ty < sliderY3 + sliderH3) {
       cd._draggingJoy = true;
       var normPos3 = (ty - sliderY3) / sliderH3;
       normPos3 = Math.max(0, Math.min(1, normPos3));
@@ -7439,7 +7652,7 @@ function classicTouchMove(pts, tx, ty) {
   if ((cd.phase === CLASSIC_PHASE.SERVING || cd.phase === CLASSIC_PHASE.AIMING) && cd.currentPlayer === (cd._multiMyIndex || 0)) {
     // 方向滑块拖拽（右侧）
     if (cd._draggingJoy) {
-      const sliderX4 = W - 89, sliderW4 = 38, sliderY4 = H - 327, sliderH4 = 187;
+      const sliderX4 = W - 70 + 40 - 22, sliderW4 = 38, sliderY4 = H - 90 - 40 - 187 - 50, sliderH4 = 187;
       var normPos4 = (ty - sliderY4) / sliderH4;
       normPos4 = Math.max(0, Math.min(1, normPos4));
       cd.aimingAngle = 1.25 * Math.PI - normPos4 * 2.5 * Math.PI;
@@ -10205,6 +10418,8 @@ function init() {
     try { var qm = wx.getStorageSync('zhuzhu_quiet_mode'); if (qm !== undefined && qm !== '') quietMode = !!qm; } catch(e) {}
     try { var tsk = wx.getStorageSync('zhuzhu_treasure_skip'); if (tsk !== undefined && tsk !== '') treasurePopSkipped = !!tsk; } catch(e) {}
     try { var cdSkip = wx.getStorageSync('zhuzhu_classic_disclaimer_skip'); if (cdSkip === '1') classicDisclaimerSkip = true; } catch(e) {}
+    try { var cdDiff = wx.getStorageSync('zhuzhu_classic_difficulty'); if (cdDiff) classicDifficulty = cdDiff; } catch(e) {}
+    try { var cdHist = wx.getStorageSync('zhuzhu_classic_history'); if (cdHist) classicHistory = cdHist; } catch(e) {}
     // 重复宝物暂存每局清空，不从存储加载
     try { var pp = wx.getStorageSync('zhuzhu_props'); if (pp) zhuzhuProps = pp; } catch(e) {}
     try { var fpg = wx.getStorageSync('zhuzhu_free_props_given'); if (fpg === 'true') freePropsGivenToday = true; } catch(e) {}
