@@ -54,9 +54,9 @@ const CFG = {
   // 坑
   PIT_SPACING_MIN: 4.0,       // 间距 = 坑直径 × (4~7倍随机，平方分布)
   PIT_SPACING_MAX: 7.0,
-  PIT_RADIUS_MIN: 0.045,      // 最小坑半径
-  PIT_RADIUS_MAX: 0.070,      // 最大坑半径
-  HIT_TOLERANCE: 2.20,        // 更宽松的入坑判定
+  PIT_RADIUS_MIN: 0.065,      // 坑半径（固定）
+  PIT_RADIUS_MAX: 0.065,      // 坑半径（固定）
+  HIT_TOLERANCE: 1.50,        // 弹珠中心距坑心 ≤ 坑半径×1.50 即入坑
 
   // 相机
   CAMERA_LERP_IDLE: 0.07,     // 静止时平滑系数
@@ -456,7 +456,8 @@ const LEVEL_STORIES = [
 let chargePower = 0;           // 0 ~ 1
 let score = 0;                 // 连续入坑数
 let bestScore = 0;             // 最高纪录
-let comboCount = 0;            // 本次连续入坑
+let comboCount = 0;            // 当前连续入坑
+let sessionBestCombo = 0;      // 当局最高连击
 let animTimer = 0;             // 动画计时器
 
 // 进度数据
@@ -480,6 +481,8 @@ let progress = {
 let livesData = {
   lives: 3,
   lastResetDate: '',
+  dailyPits: 0,
+  dailyBestCombo: 0,
   sharesToday: 0,
   adsToday: 0,
 };
@@ -498,7 +501,7 @@ let marble = {
   alpha: 1,
   sinkY: 0,
   texOffX: 60,  // 初始偏移50%
-  _jumpPropAnim: false, _jumpSfxPlayed: false, _jumpFromX2: 0, _jumpFromY2: 0, _jumpToX: 0, _jumpToY: 0, _jumpTargetPit: -1, _jumpTargetPit2: -1,
+  _jumpPropAnim: false, _jumpSfxPlayed: false, _jumpFromX2: 0, _jumpFromY2: 0, _jumpToX: 0, _jumpToY: 0, _jumpTargetPit: -1, _jumpTargetPit2: -1, _rollingBack: false, _rollbackFromX: 0, _rollbackFromY: 0, _rollbackFromScale: 1, _rollbackToX: 0, _rollbackToY: 0, _rollbackPit: null, _rollbackTimer: 0,
   texOffY: 60,
 };
 
@@ -545,12 +548,12 @@ function spawnNextPit() {
   if (!lastPit) {
     // 第一个坑：在珠珠前方偏右
     worldX = 0.58 + Math.random() * 0.08;
-    radius = CFG.PIT_RADIUS_MIN + Math.random() * 0.015;
-    worldY = marble.worldY + radius * 2 * 4;  // 第一个坑约4倍直径
+    radius = CFG.PIT_RADIUS_MIN;
+    worldY = marble.worldY + radius * 2 * (7 + Math.random() * 3);  // 7~10倍直径
   } else {
     // 方向随机变化（不只左右交替），难度越高横向偏移越大
-    const tp2 = (progress.totalPits || 0);
-    const spread = tp2 < 20 ? 0.32 : (tp2 < 50 ? 0.42 : 0.52);
+    const totalP = (progress.totalPits || 0);
+    const spread = totalP < 150 ? 0.32 : (totalP < 600 ? 0.42 : 0.52);
     const angleVariation = (Math.random() - 0.5) * 1.4;  // ±0.7 弧度 ≈ ±40°
     const baseAngle = lastPit.worldX > 0.5 ? Math.PI : 0; // 大方向交替
     const dirAngle = baseAngle + angleVariation;
@@ -558,29 +561,19 @@ function spawnNextPit() {
 
     // 间距 = 坑直径 × 随机倍数，难度阶梯
     const diameter = lastPit.radius * 2;
-    const tp = (progress.totalPits || 0);
     var minMul, maxMul;
-    if (tp < 20) {
-      // 1-19坑：新手友好，间距5.5-6倍
-      minMul = 5.5; maxMul = 6.0;
-    } else if (tp < 50) {
-      // 20-50坑：进阶难度，间距更大更随机
-      minMul = 5.0; maxMul = 7.5;
+    if (totalP < 150) {
+      minMul = 3.0; maxMul = 5.0;
+    } else if (totalP < 600) {
+      minMul = 3.0; maxMul = 6.5;
     } else {
-      // 50坑以后：高难度
-      minMul = 4.0; maxMul = 8.0;
+      minMul = 3.0; maxMul = 8.0;
     }
     const multiplier = minMul + Math.random() * (maxMul - minMul);
     worldY = lastPit.worldY + diameter * multiplier;
 
-    // 坑大小：20-50坑逐渐缩小
-    var rMin = CFG.PIT_RADIUS_MIN, rMax = CFG.PIT_RADIUS_MAX;
-    if (tp >= 20 && tp < 50) {
-      rMin = 0.040; rMax = 0.058;
-    } else if (tp >= 50) {
-      rMin = 0.038; rMax = 0.052;
-    }
-    radius = rMin + Math.random() * (rMax - rMin);
+    // 坑大小：固定 0.13 直径
+    radius = CFG.PIT_RADIUS_MIN;
   }
 
   const pit = createPit(worldX, worldY, radius);
@@ -597,6 +590,31 @@ function getCurrentTargetPit() {
 // 六、物理系统（基于 dt）
 // ============================================================
 function updateRolling(dt) {
+  // 回滚入坑：位置回位，缩放继续向 0.80 lerp
+  if (marble._rollingBack) {
+    marble._rollbackTimer += dt;
+    var dur = 0.18;
+    var t = Math.min(marble._rollbackTimer / dur, 1);
+    var ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    var prevX = marble.worldX, prevY = marble.worldY;
+    marble.worldX = marble._rollbackFromX + (marble._rollbackToX - marble._rollbackFromX) * ease;
+    marble.worldY = marble._rollbackFromY + (marble._rollbackToY - marble._rollbackFromY) * ease;
+    // 缩放：和引力用同一套 lerp，不切曲线
+    marble.scale += (0.80 - marble.scale) * 0.25;
+    var ddx = marble.worldX - prevX, ddy = marble.worldY - prevY;
+    marble.texOffX += ddx * 220;
+    marble.texOffY -= ddy * 220;
+    if (t >= 1) {
+      marble._rollingBack = false;
+      marble.worldX = marble._rollbackToX;
+      marble.worldY = marble._rollbackToY;
+      marble.scale = 0.80;
+      marble.vx = 0; marble.vy = 0;
+      startSinkAnimation(marble._rollbackPit);
+    }
+    return;
+  }
+
   // 连续摩擦力
   const decay = Math.exp(-CFG.FRICTION * dt);
   marble.vy *= decay;
@@ -611,24 +629,69 @@ function updateRolling(dt) {
     marble.vy *= extraDecay;
   }
 
-  // ===== 坑的下坡引力 =====
-  const GRAVITY = 1.5;  // 坑的下坡加速度
-  const bottomX = marble.worldX;
-  const bottomY = marble.worldY + CFG.MARBLE_RADIUS;
-  let overPit = false;
-  for (const pit of pits) {
-    if (pit.visited) continue;
-    const dx = bottomX - pit.worldX;
-    const dy = bottomY - pit.worldY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const pullRange = pit.radius * 1.5;  // 引力范围
-    if (dist < pullRange && dist > 0.01) {
-      overPit = true;
-      // 越近拉力越强
-      const strength = (1 - dist / pullRange) * GRAVITY;
-      marble.vx -= (dx / dist) * strength * dt;
-      marble.vy -= (dy / dist) * strength * dt;
+  // ===== 强磁道具：引力吸入 + 渐进缩放 =====
+  if (propMagnetActive) {
+    const GRAVITY = 1.2;
+    const bottomX2 = marble.worldX;
+    const bottomY2 = marble.worldY + CFG.MARBLE_RADIUS;
+    for (const pit of pits) {
+      if (pit.visited) continue;
+      if (pit._index !== propMagnetPitIndex) continue;
+      const dx2 = bottomX2 - pit.worldX;
+      const dy2 = bottomY2 - pit.worldY;
+      const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      const pullRange2 = 999; // 全屏吸引
+      if (dist2 > 0.01) {
+        const ts2 = Math.max(0.05, 1 - Math.min(dist2 / 100, 0.95));
+        const strength = ts2 * GRAVITY;
+        marble.vx -= (dx2 / dist2) * strength * dt;
+        marble.vy -= (dy2 / dist2) * strength * dt;
+        var targetScale2 = 1.0 - ts2 * 0.20;
+        marble.scale += (targetScale2 - marble.scale) * 0.25;
+      }
     }
+  } else {
+    // ===== 普通滑入：球心未过坑心，在命中范围内 → 加速靠近 + 缩放 =====
+    var targetPit2 = getCurrentTargetPit();
+    if (targetPit2) {
+      var dx3 = marble.worldX - targetPit2.worldX;
+      var dy3 = marble.worldY - targetPit2.worldY;
+      var dist3 = Math.sqrt(dx3 * dx3 + dy3 * dy3);
+      var pullRange3 = targetPit2.radius * 1.1;
+      if (dist3 < pullRange3 && dist3 > 0.005 && marble.worldY <= targetPit2.worldY) {
+        var ts3 = 1 - (dist3 / pullRange3); // 0(边缘) → 1(中心)
+        var strength3 = ts3 * 0.8;
+        marble.vx -= (dx3 / dist3) * strength3 * dt;
+        marble.vy -= (dy3 / dist3) * strength3 * dt;
+        var targetScale3 = 1.0 - ts3 * 0.20;
+        marble.scale += (targetScale3 - marble.scale) * 0.25;
+      }
+    }
+  }
+
+  // ===== 坑中心吸力 =====
+  var suckPit = getCurrentTargetPit();
+  var suckDist = Infinity, suckRange = 1;
+  if (suckPit) {
+    var scx = marble.worldX - suckPit.worldX;
+    var scy = marble.worldY - suckPit.worldY;
+    suckDist = Math.sqrt(scx*scx + scy*scy);
+    suckRange = suckPit.radius * 2.0;
+  }
+  var inSuck = suckPit && suckDist < suckRange && suckDist > 0.01 && !propMagnetActive;
+  if (inSuck) {
+    var st = 1 - (suckDist / suckRange);
+    var ss = st * 1.0;
+    marble.vx -= (scx / suckDist) * ss * dt;
+    marble.vy -= (scy / suckDist) * ss * dt;
+    // 近坑急刹：越靠近坑心减速越快，防止越过
+    if (suckDist < suckPit.radius * 0.5) {
+      var brake = 8.0 * (1 - suckDist / (suckPit.radius * 0.5));
+      marble.vx *= Math.exp(-brake * dt);
+      marble.vy *= Math.exp(-brake * dt);
+    }
+    var sts = 1 - st * 0.20;
+    marble.scale += (sts - marble.scale) * 0.25;
   }
 
   // 位置更新
@@ -639,11 +702,10 @@ function updateRolling(dt) {
   marble.texOffX = (marble.texOffX - marble.vx * dt * 220) % 1200;
   marble.texOffY = (marble.texOffY + marble.vy * dt * 220) % 1200;
 
-  // ===== 掠过坑时微缩效果 =====
-  const targetScale = overPit ? 0.96 : 1.0;
-  // 渐快过渡：入坑加速缩，出坑缓恢复
-  const lerpSpeed = overPit ? 0.35 : 0.15;
-  marble.scale += (targetScale - marble.scale) * lerpSpeed;
+  // 远离坑时缩放恢复到 1.0
+  if (!propMagnetActive && !marble._rollingBack && !inSuck) {
+    marble.scale += (1.0 - marble.scale) * 0.15;
+  }
 
   // 检查是否停止
   const speed = Math.sqrt(marble.vx * marble.vx + marble.vy * marble.vy);
@@ -663,22 +725,43 @@ function checkPitResult() {
     return;
   }
 
+  // 弹珠中心到坑心距离
   const mx = marble.worldX;
-  const my = marble.worldY + CFG.MARBLE_RADIUS;
+  const my = marble.worldY;
   const dx = mx - targetPit.worldX;
   const dy = my - targetPit.worldY;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
-  var tolerance2 = CFG.HIT_TOLERANCE;
+  var hitRange = targetPit.radius * 1.1;
   if (propMagnetActive && targetPit._index === propMagnetPitIndex) {
-    tolerance2 = 99; // 强磁：多远都吸
+    hitRange = 999; // 强磁：必定命中
   }
-  if (dist <= targetPit.radius * tolerance2) {
+  if (dist <= hitRange) {
     if (propMagnetActive && targetPit._index === propMagnetPitIndex) {
       propMagnetActive = false; propMagnetPitIndex = -1; magnetParticles = [];
     }
     currentPitIndex = targetPit._index;
-    startSinkAnimation(targetPit);
+    var overCenter = my > targetPit.worldY;
+    if (dist < 0.005) {
+      // 已在坑心，直接入坑
+      marble.scale = 0.80;
+      startSinkAnimation(targetPit);
+    } else if (overCenter) {
+      // 球心超过坑心 → 回滚
+      marble._rollingBack = true;
+      marble._rollbackFromX = mx;
+      marble._rollbackFromY = my;
+      marble._rollbackFromScale = marble.scale;
+      marble._rollbackToX = targetPit.worldX;
+      marble._rollbackToY = targetPit.worldY;
+      marble._rollbackPit = targetPit;
+      marble._rollbackTimer = 0;
+      marble.vx = 0; marble.vy = 0;
+    } else {
+      // 球心未到坑心但已在范围内 → 前方刹停，也算命中
+      marble.scale = 0.80;
+      startSinkAnimation(targetPit);
+    }
   } else {
     // 没进坑
     playSfx('fail');
@@ -694,9 +777,13 @@ function startSinkAnimation(pit) {
   animTimer = 0;
   marble.sinkY = 0;
   marble.alpha = 1;
+  marble._sinkStartScale = marble.scale; // 滑入起点（保持引力缩放的连续性）
   // 入口位置（珠珠停下的地方）
   marble._entryX = marble.worldX;
   marble._entryY = marble.worldY;
+  // 已在坑心则跳过滑入阶段
+  var dx2 = marble.worldX - pit.worldX, dy2 = marble.worldY - pit.worldY;
+  marble._skipSlide = (Math.sqrt(dx2*dx2 + dy2*dy2) < 0.005);
   // 落点：圆心在坑中心→下一坑的连线上
   const nextPit = pits.find(p => !p.visited && p.worldY > pit.worldY);
   let angle = 0;
@@ -731,15 +818,15 @@ function updateSinking(dt) {
   // 暂停阶段检测宝物，有宝物则冻结在坑内
   if (raw >= slideDur && raw < slideDur + pauseDur) {
     var hasT = false;
-    if (gameMode === 'endless') {
+    if (gameMode === 'endless' || gameMode === 'levels') {
       var tp3 = pits.find(function(p){ return p._index === currentPitIndex; });
-      if (tp3 && tp3.hasTreasure && tp3.treasureId) hasT = true;
+      if (tp3 && tp3.hasTreasure) hasT = true;
     }
     if (hasT) {
       // 冻结在坑中心，等弹窗/光点处理完
       marble.worldX = pit2.worldX;
       marble.worldY = pit2.worldY;
-      marble.scale = 0.90;
+      marble.scale = 0.80;
       marble.sinkY = 0;
       marble.alpha = 1;
       if (!treasurePopup && !treasureWaitingParticles) {
@@ -750,24 +837,33 @@ function updateSinking(dt) {
     }
   }
 
-  if (raw < slideDur) {
+  if (marble._skipSlide && raw < slideDur) {
+    // 已在坑心，跳过滑入动画，静置等时间走完
+    marble.worldX = pit2.worldX;
+    marble.worldY = pit2.worldY;
+    marble.scale = 0.80;
+    marble.sinkY = 0; marble.alpha = 1;
+  } else if (!marble._skipSlide && raw < slideDur) {
     var p3 = raw / slideDur;
     var ease2 = p3 * p3;
+    var prevX2 = marble.worldX, prevY2 = marble.worldY;
     marble.worldX = marble._entryX + (pit2.worldX - marble._entryX) * ease2;
     marble.worldY = marble._entryY + (pit2.worldY - marble._entryY) * ease2;
-    marble.scale = 1 - ease2 * 0.10;
+    marble.texOffX -= (marble.worldX - prevX2) * 220;
+    marble.texOffY += (marble.worldY - prevY2) * 220;
+    marble.scale = marble._sinkStartScale + (0.80 - marble._sinkStartScale) * ease2;
     marble.sinkY = 0; marble.alpha = 1;
   } else if (raw < slideDur + pauseDur) {
     marble.worldX = pit2.worldX;
     marble.worldY = pit2.worldY;
-    marble.scale = 0.90;
+    marble.scale = 0.80;
     marble.sinkY = 0; marble.alpha = 1;
   } else {
     var p4 = (raw - slideDur - pauseDur) / jumpDur;
     marble.worldX = pit2.worldX + (marble._landX - pit2.worldX) * p4;
     marble.worldY = pit2.worldY + (marble._landY - pit2.worldY) * p4;
     var fromMid2 = Math.abs(p4 - 0.5) * 2;
-    marble.scale = 0.90 + (1 - fromMid2) * 0.20;
+    marble.scale = 0.80 + (1 - fromMid2) * 0.20;
     marble.sinkY = Math.sin(p4 * Math.PI) * -12;
     marble.alpha = 1;
   }
@@ -789,12 +885,19 @@ function updateSinking(dt) {
 function finishSink() {
   score++;
   comboCount++;
-  marble.scale = 1;
   marble.alpha = 1;
   marble.vx = 0;
   marble.vy = 0;
 
   if (score > bestScore) { bestScore = score; submitScoreToCloud(); }
+
+  // 进度追踪（必须在通关检测之前，确保最后一坑也能触发勋章/皮肤解锁）
+  progress.totalPits = (progress.totalPits || 0) + 1;
+  livesData.dailyPits = (livesData.dailyPits || 0) + 1;
+  if (comboCount > (progress.bestCombo || 0)) progress.bestCombo = comboCount;
+  if (comboCount > sessionBestCombo) sessionBestCombo = comboCount;
+  if (comboCount > (livesData.dailyBestCombo || 0)) livesData.dailyBestCombo = comboCount;
+  checkMilestones();
 
   // 闯关模式通关检测
   if (gameMode === 'levels') {
@@ -812,11 +915,6 @@ function finishSink() {
       return;
     }
   }
-
-  // 进度追踪
-  progress.totalPits = (progress.totalPits || 0) + 1;
-  if (comboCount > (progress.bestCombo || 0)) progress.bestCombo = comboCount;
-  checkMilestones();
 
   // 标记当前坑已访问
   const targetPit = getCurrentTargetPit();
@@ -871,9 +969,11 @@ function updateRespawn(dt) {
     marble.worldX = marble._jumpFromX + (marble._landX - marble._jumpFromX) * easeJump;
     marble.worldY = marble._jumpFromY + (marble._landY - marble._jumpFromY) * easeJump;
   }
-  // 缩放弹跳：0.85 → 1.1 → 1.0
+  // 缩放弹跳：从当前 → 1.1 → 1.0
+  var startScale = marble._respawnStartScale || 0.80;
+  if (t5 < 0.01) marble._respawnStartScale = marble.scale;
   if (t5 < 0.5) {
-    marble.scale = 0.90 + t5 / 0.5 * 0.20;
+    marble.scale = startScale + t5 / 0.5 * (1.1 - startScale);
   } else {
     marble.scale = 1.1 - (t5 - 0.5) / 0.5 * 0.1;
   }
@@ -1046,8 +1146,8 @@ function restartGame() {
   pits = [];
   currentPitIndex = 0;
   pitIdCounter = 0;
-  const r = CFG.PIT_RADIUS_MIN + Math.random() * 0.015;
-  spawnPitAt(0.58 + Math.random() * 0.08, r * 2 * (3 + Math.random() * 4), r);
+  const r = CFG.PIT_RADIUS_MIN;
+  spawnPitAt(0.58 + Math.random() * 0.08, marble.worldY + r * 2 * (7 + Math.random() * 3), r);
   for (let i = 0; i < 3; i++) spawnNextPit();
 
   // 标记宝物坑
@@ -1057,6 +1157,7 @@ function restartGame() {
   // 重置状态
   score = 0;
   comboCount = 0;
+  sessionBestCombo = 0;
   sessionProps = { heart: 1, jump: 1, force: 1 };
   // 签到攒的道具叠加到本局
   if (zhuzhuProps.heart > 0) { sessionProps.heart += zhuzhuProps.heart; zhuzhuProps.heart = 0; }
@@ -1088,12 +1189,12 @@ function checkMilestones() {
   const badges = progress.unlockedBadges || [];
 
   // 历程勋章 (7)
-  var pms = [[10,'first_pit'],[50,'five_pits'],[100,'twenty_pits'],[200,'fifty_pits'],[400,'hundred_pits'],[1000,'five_hundred'],[2500,'thousand_pits']];
+  var pms = [[50,'first_pit'],[150,'five_pits'],[350,'twenty_pits'],[600,'fifty_pits'],[1000,'hundred_pits'],[2500,'five_hundred'],[5000,'thousand_pits']];
   for (var pi5 = 0; pi5 < pms.length; pi5++) { if (tp >= pms[pi5][0] && !badges.includes(pms[pi5][1])) badges.push(pms[pi5][1]); }
 
   // 连击勋章 (7)
   var bcm3 = progress.bestCombo || 0;
-  var cms = [[2,'combo_2'],[3,'combo_3'],[10,'combo_5'],[20,'combo_10'],[30,'combo_20'],[50,'combo_35'],[100,'combo_50']];
+  var cms = [[2,'combo_2'],[9,'combo_3'],[20,'combo_5'],[40,'combo_10'],[50,'combo_20'],[80,'combo_35'],[120,'combo_50']];
   for (var ci3 = 0; ci3 < cms.length; ci3++) { if (bcm3 >= cms[ci3][0] && !badges.includes(cms[ci3][1])) badges.push(cms[ci3][1]); }
 
   // 登录勋章 (7)
@@ -1109,16 +1210,16 @@ function checkMilestones() {
 
   // 珠珠解锁
   const marbleUnlocks = [
-    [30,'moonlight_white'],[80,'emerald_green'],[150,'amber_gold'],
-    [500,'tiger_eye_brown'],[1000,'ink_black'],
-    [2000,'orange_soda'],[3500,'mint_blue'],[5000,'sakura_pink'],[10000,'rainbow_phantom']
+    [80,'moonlight_white'],[200,'emerald_green'],[400,'amber_gold'],
+    [800,'tiger_eye_brown'],[1500,'ink_black'],
+    [3000,'orange_soda'],[5000,'mint_blue'],[8000,'sakura_pink'],[15000,'rainbow_phantom']
   ];
   for (const [n, id] of marbleUnlocks) {
     if (tp >= n && !progress.unlockedMarbles.includes(id)) progress.unlockedMarbles.push(id);
   }
-  if (progress.bestCombo >= 12 && !progress.unlockedMarbles.includes('purple_crystal'))
+  if (progress.bestCombo >= 30 && !progress.unlockedMarbles.includes('purple_crystal'))
     progress.unlockedMarbles.push('purple_crystal');
-  if (progress.bestCombo >= 20 && !progress.unlockedMarbles.includes('flame_red'))
+  if (progress.bestCombo >= 50 && !progress.unlockedMarbles.includes('flame_red'))
     progress.unlockedMarbles.push('flame_red');
 
   // 场景解锁（通关即解锁对应场景）
@@ -1138,9 +1239,9 @@ function checkMilestones() {
   var usc = (progress.unlockedScenes || []).length;
   var ld2 = progress.loginDays || 0;
   var titleChecks = [
-    [1,'beginner',tp2],[30,'player',tp2],[100,'enthusiast',tp2],
-    [500,'expert',tp2],[1000,'master',tp2],[5000,'legend',tp2],
-    [15,'sharpshooter',bcm],[30,'unstoppable',bcm],
+    [50,'beginner',tp2],[200,'player',tp2],[500,'enthusiast',tp2],
+    [1500,'expert',tp2],[3000,'master',tp2],[8000,'legend',tp2],
+    [50,'sharpshooter',bcm],[100,'unstoppable',bcm],
     [8,'collector8',umc],[6,'traveler6',usc],
     [30,'loyal30',ld2],[100,'oldfriend',ld2],
   ];
@@ -1173,6 +1274,8 @@ function resetLivesIfNewDay() {
   if (livesData.lastResetDate !== today) {
     livesData.lives = 3;
     livesData.lastResetDate = today;
+    livesData.dailyPits = 0;
+    livesData.dailyBestCombo = 0;
     livesData.sharesToday = 0;
     livesData.adsToday = 0;
     freePropsGivenToday = false;
@@ -1887,7 +1990,7 @@ function drawMarble() {
   // ===== 速度线（珠珠下面，拖尾） =====
   const spd = Math.sqrt(marble.vx * marble.vx + marble.vy * marble.vy);
   const nextPit2 = pits.find(p => !p.visited);
-  if (spd > 0.15 && gameState === STATE.ROLLING && (!nextPit2 || marble.worldY + CFG.MARBLE_RADIUS < nextPit2.worldY + nextPit2.radius)) {
+  if (spd > 0.15 && gameState === STATE.ROLLING && (!nextPit2 || marble.worldY < nextPit2.worldY)) {
     var dx2 = marble.vx / Math.max(spd, 0.001), dy2 = marble.vy / Math.max(spd, 0.001);
     if (nextPit2) {
       const ldx2 = nextPit2.worldX - marble.worldX, ldy2 = nextPit2.worldY - marble.worldY;
@@ -1921,10 +2024,12 @@ function drawMarble() {
     const s = baseScale * marble.scale;
     ctx.scale(s, s);
 
-    // 裁剪圆形
+    // 裁剪圆形，先填充底色防黑角
     const clipR = imgW / (2.0 * (marble.scale || 1));
     ctx.beginPath();
     ctx.arc(0, 0, Math.max(1, clipR), 0, Math.PI * 2);
+    ctx.fillStyle = '#1a2a4a';
+    ctx.fill();
     ctx.clip();
 
     // 底层：固定背景（不跟随滚动）
@@ -1943,8 +2048,8 @@ function drawMarble() {
     const tileH = tilingImg.height || imgH;
 
     // 矩阵平铺（不翻转，消除跳帧）
-    for (let row = -1; row <= 1; row++) {
-      for (let col = -1; col <= 1; col++) {
+    for (let row = -2; row <= 2; row++) {
+      for (let col = -2; col <= 2; col++) {
         const flipX = false;
         const flipY = false;
         // 翻转2次=180°→取消位移；翻转1次→错位50%
@@ -2238,6 +2343,14 @@ function drawScore() {
   ctx.fillStyle = '#ffffff';
   ctx.fillText(String(score), 20, sy);
 
+  // 当局最高连击
+  if (gameMode !== 'classic') {
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillText('连进 ' + sessionBestCombo, 22 + 1, sy + 27);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('连进 ' + sessionBestCombo, 22, sy + 26);
+  }
 }
 
 // --- 最高分 ---
@@ -2608,17 +2721,17 @@ function drawSkinPopup() {
       ctx.fillText(s.name, ix + itemW / 2, nameY);
       // 解锁条件
       var condText = '';
-      if (s.id === 'moonlight_white') condText = '累计30坑';
-      else if (s.id === 'emerald_green') condText = '累计80坑';
-      else if (s.id === 'amber_gold') condText = '累计150坑';
-      else if (s.id === 'tiger_eye_brown') condText = '累计500坑';
-      else if (s.id === 'ink_black') condText = '累计1000坑';
-      else if (s.id === 'purple_crystal') condText = '连击≥12';
-      else if (s.id === 'flame_red') condText = '连击≥20';
-      else if (s.id === 'orange_soda') condText = '累计2000坑';
-      else if (s.id === 'mint_blue') condText = '累计3500坑';
-      else if (s.id === 'sakura_pink') condText = '累计5000坑';
-      else if (s.id === 'rainbow_phantom') condText = '累计10000坑';
+      if (s.id === 'moonlight_white') condText = '累计80坑';
+      else if (s.id === 'emerald_green') condText = '累计200坑';
+      else if (s.id === 'amber_gold') condText = '累计400坑';
+      else if (s.id === 'tiger_eye_brown') condText = '累计800坑';
+      else if (s.id === 'ink_black') condText = '累计1500坑';
+      else if (s.id === 'purple_crystal') condText = '连击≥30';
+      else if (s.id === 'flame_red') condText = '连击≥50';
+      else if (s.id === 'orange_soda') condText = '累计3000坑';
+      else if (s.id === 'mint_blue') condText = '累计5000坑';
+      else if (s.id === 'sakura_pink') condText = '累计8000坑';
+      else if (s.id === 'rainbow_phantom') condText = '累计15000坑';
       else if (s.id === 'classic_blue') condText = '初始拥有';
       if (condText) {
         ctx.fillStyle = '#333';
@@ -3023,20 +3136,20 @@ function drawBadgesPopup() {
   if (badgeTab === 0) {
     // 勋章卡片列表（可滚动）
     var allBadges = [
-      { name:'初次入坑', cat:'历程勋章', cond:'累计入坑10次', icon:'', target:10, key:'totalPits' , id:'first_pit'},
-      { name:'初露锋芒', cat:'历程勋章', cond:'累计入坑50次', icon:'', target:50, key:'totalPits' , id:'five_pits'},
-      { name:'小试身手', cat:'历程勋章', cond:'累计入坑100次', icon:'', target:100, key:'totalPits' , id:'twenty_pits'},
-      { name:'渐入佳境', cat:'历程勋章', cond:'累计入坑200次', icon:'', target:200, key:'totalPits' , id:'fifty_pits'},
-      { name:'百坑不倦', cat:'历程勋章', cond:'累计入坑400次', icon:'', target:400, key:'totalPits' , id:'hundred_pits'},
-      { name:'弹珠达人', cat:'历程勋章', cond:'累计入坑1000次', icon:'', target:1000, key:'totalPits' , id:'five_hundred'},
-      { name:'千锤百炼', cat:'历程勋章', cond:'累计入坑2500次', icon:'', target:2500, key:'totalPits' , id:'thousand_pits'},
+      { name:'初次入坑', cat:'历程勋章', cond:'累计入坑50次', icon:'', target:50, key:'totalPits' , id:'first_pit'},
+      { name:'初露锋芒', cat:'历程勋章', cond:'累计入坑150次', icon:'', target:150, key:'totalPits' , id:'five_pits'},
+      { name:'小试身手', cat:'历程勋章', cond:'累计入坑350次', icon:'', target:350, key:'totalPits' , id:'twenty_pits'},
+      { name:'渐入佳境', cat:'历程勋章', cond:'累计入坑600次', icon:'', target:600, key:'totalPits' , id:'fifty_pits'},
+      { name:'百坑不倦', cat:'历程勋章', cond:'累计入坑1000次', icon:'', target:1000, key:'totalPits' , id:'hundred_pits'},
+      { name:'弹珠达人', cat:'历程勋章', cond:'累计入坑2500次', icon:'', target:2500, key:'totalPits' , id:'five_hundred'},
+      { name:'千锤百炼', cat:'历程勋章', cond:'累计入坑5000次', icon:'', target:5000, key:'totalPits' , id:'thousand_pits'},
       { name:'二连入坑', cat:'精准勋章', cond:'单局连续2坑', icon:'', target:2, key:'bestCombo' , id:'combo_2'},
-      { name:'三连入坑', cat:'精准勋章', cond:'单局连续3坑', icon:'', target:3, key:'bestCombo' , id:'combo_3'},
-      { name:'五连绝世', cat:'精准勋章', cond:'单局连续10坑', icon:'', target:10, key:'bestCombo' , id:'combo_5'},
-      { name:'势不可挡', cat:'精准勋章', cond:'单局连续20坑', icon:'', target:20, key:'bestCombo' , id:'combo_10'},
-      { name:'人珠合一', cat:'精准勋章', cond:'单局连续30坑', icon:'', target:30, key:'bestCombo' , id:'combo_20'},
-      { name:'天选之珠', cat:'精准勋章', cond:'单局连续50坑', icon:'', target:50, key:'bestCombo' , id:'combo_35'},
-      { name:'传说连击', cat:'精准勋章', cond:'单局连续100坑', icon:'', target:100, key:'bestCombo' , id:'combo_50'},
+      { name:'三连入坑', cat:'精准勋章', cond:'单局连续9坑', icon:'', target:9, key:'bestCombo' , id:'combo_3'},
+      { name:'五连绝世', cat:'精准勋章', cond:'单局连续20坑', icon:'', target:20, key:'bestCombo' , id:'combo_5'},
+      { name:'势不可挡', cat:'精准勋章', cond:'单局连续40坑', icon:'', target:40, key:'bestCombo' , id:'combo_10'},
+      { name:'人珠合一', cat:'精准勋章', cond:'单局连续50坑', icon:'', target:50, key:'bestCombo' , id:'combo_20'},
+      { name:'天选之珠', cat:'精准勋章', cond:'单局连续80坑', icon:'', target:80, key:'bestCombo' , id:'combo_35'},
+      { name:'传说连击', cat:'精准勋章', cond:'单局连续120坑', icon:'', target:120, key:'bestCombo' , id:'combo_50'},
       { name:'初次见面', cat:'陪伴勋章', cond:'累计登录1天', icon:'', target:1, key:'loginDays' , id:'login_1'},
       { name:'三天打鱼', cat:'陪伴勋章', cond:'累计登录3天', icon:'', target:3, key:'loginDays' , id:'login_3'},
       { name:'一周相伴', cat:'陪伴勋章', cond:'累计登录7天', icon:'', target:7, key:'loginDays' , id:'login_7'},
@@ -3148,14 +3261,14 @@ function drawBadgesPopup() {
   } else {
     // 称号卡片（3列网格）
     var titleData = [
-      { name:'初来乍到', icon:'', cond:'累计入坑10次', id:'beginner' },
-      { name:'弹珠学徒', icon:'', cond:'累计入坑50次', id:'player' },
-      { name:'弹珠爱好者', icon:'', cond:'累计入坑100次', id:'enthusiast' },
-      { name:'弹珠高手', icon:'', cond:'累计入坑500次', id:'expert' },
-      { name:'弹珠大师', icon:'', cond:'累计入坑1000次', id:'master' },
-      { name:'弹珠传说', icon:'', cond:'累计入坑5000次', id:'legend' },
-      { name:'百发百中', icon:'', cond:'单局连续15坑', id:'sharpshooter' },
-      { name:'势不可挡', icon:'', cond:'单局连续30坑', id:'unstoppable' },
+      { name:'初来乍到', icon:'', cond:'累计入坑50次', id:'beginner' },
+      { name:'弹珠学徒', icon:'', cond:'累计入坑200次', id:'player' },
+      { name:'弹珠爱好者', icon:'', cond:'累计入坑500次', id:'enthusiast' },
+      { name:'弹珠高手', icon:'', cond:'累计入坑1500次', id:'expert' },
+      { name:'弹珠大师', icon:'', cond:'累计入坑3000次', id:'master' },
+      { name:'弹珠传说', icon:'', cond:'累计入坑8000次', id:'legend' },
+      { name:'百发百中', icon:'', cond:'单局连续50坑', id:'sharpshooter' },
+      { name:'势不可挡', icon:'', cond:'单局连续100坑', id:'unstoppable' },
       { name:'珠珠收藏家', icon:'', cond:'解锁8款珠珠皮肤', id:'collector8' },
       { name:'世界漫游者', icon:'', cond:'解锁6款场景', id:'traveler6' },
       { name:'不离不弃', icon:'', cond:'累计登录30天', id:'loyal30' },
@@ -3761,7 +3874,7 @@ function drawHomePage() {
     ctx.fill();
   }
   // 最高分
-  var txt = '最高分 ' + bestScore;
+  var txt = '最高进 ' + bestScore + ' · 连进 ' + (progress.bestCombo || 0);
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -3872,6 +3985,19 @@ function drawHomePage() {
     ctx.font = 'bold 17px sans-serif';
     ctx.fillText('经典模式', W/2, bc.y + 2);
   }
+
+  // 今日数据统计
+  var statY2 = bc.y + bc.h / 2 + 24;
+  var stxt = '今日进 ' + (livesData.dailyPits || 0) + ' · 连进 ' + (livesData.dailyBestCombo || 0);
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillText(stxt, W / 2 + 1, statY2);
+  ctx.fillText(stxt, W / 2 - 1, statY2);
+  ctx.fillText(stxt, W / 2, statY2 + 1);
+  ctx.fillText(stxt, W / 2, statY2 - 1);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(stxt, W / 2, statY2);
 
   // 设置图标（头像下方间距16px）
   var setY = CAPSULE_MID_Y + 32;
@@ -4108,8 +4234,8 @@ function startGame() {
   pits = [];
   currentPitIndex = 0;
   pitIdCounter = 0;
-  const r = CFG.PIT_RADIUS_MIN + Math.random() * 0.015;
-  spawnPitAt(0.58 + Math.random() * 0.08, r * 2 * (3 + Math.random() * 4), r);
+  const r = CFG.PIT_RADIUS_MIN;
+  spawnPitAt(0.58 + Math.random() * 0.08, marble.worldY + r * 2 * (7 + Math.random() * 3), r);
   for (let i = 0; i < 3; i++) spawnNextPit();
 
   // 标记宝物坑
@@ -4119,6 +4245,7 @@ function startGame() {
   // 重置状态
   score = 0;
   comboCount = 0;
+  sessionBestCombo = 0;
   sessionProps = { heart: 1, jump: 1, force: 1 };
   // 签到攒的道具叠加到本局
   if (zhuzhuProps.heart > 0) { sessionProps.heart += zhuzhuProps.heart; zhuzhuProps.heart = 0; }
@@ -8816,7 +8943,7 @@ function updateJumpPropAnim(dt) {
     } else if (t7 < 0.8) {
       marble.scale = 1.3 - (t7-0.4)/0.4 * 0.4;
     } else {
-      marble.scale = 0.9;
+      marble.scale = 0.80;
     }
     return true;
   }
@@ -8825,7 +8952,7 @@ function updateJumpPropAnim(dt) {
   var pt = animTimer - dur;
   marble.worldX = marble._jumpToX;
   marble.worldY = marble._jumpToY;
-  marble.scale = 0.9;
+  marble.scale = 0.80;
   if (pt < pause) return true;
   // 停留结束，走正常跳出动画
   marble._jumpPropAnim = false;
@@ -8837,7 +8964,10 @@ function updateJumpPropAnim(dt) {
     tp5.visited = true; score++; comboCount++;
     if (score > bestScore) { bestScore = score; submitScoreToCloud(); }
     progress.totalPits = (progress.totalPits || 0) + 1;
+    livesData.dailyPits = (livesData.dailyPits || 0) + 1;
     if (comboCount > (progress.bestCombo || 0)) progress.bestCombo = comboCount;
+    if (comboCount > sessionBestCombo) sessionBestCombo = comboCount;
+    if (comboCount > (livesData.dailyBestCombo || 0)) livesData.dailyBestCombo = comboCount;
     checkMilestones();
     // 闯关通关检测（跳坑道具不走finishSink，需单独判断）
     if (gameMode === 'levels') {
@@ -10158,6 +10288,7 @@ function applyShareReward() {
       marble.worldX = 0.5; marble.worldY = -CFG.MARBLE_RADIUS;
     }
     marble.vx = 0; marble.vy = 0; marble.scale = 1;
+    marble._rollingBack = false;
     comboCount = 0;
     gameState = STATE.IDLE;
     camera.targetY = marble.worldY - CFG.CAMERA_OFFSET;
